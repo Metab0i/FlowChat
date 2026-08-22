@@ -41,47 +41,42 @@ const panzoom = createPanZoom({
 
 /* ---------- jsPlumb source/target selectors ---------- */
 
-instance.addSourceSelector(".flow-node .port", {
-  scope: "flowchat",
-  anchor: "AutoDefault",
-  maxConnections: -1,
-  allowLoopback: false,
-  endpoint: "Blank",
-});
+const PORT_ANCHORS = [
+  [".flow-node .port-top", "Top"],
+  [".flow-node .port-right", "Right"],
+  [".flow-node .port-bottom", "Bottom"],
+  [".flow-node .port-left", "Left"],
+];
 
-instance.addTargetSelector(".flow-node .port", {
-  scope: "flowchat",
-  anchor: "AutoDefault",
-  maxConnections: -1,
-  allowLoopback: false,
-  endpoint: "Blank",
-});
+for (const [selector, anchor] of PORT_ANCHORS) {
+  const params = {
+    scope: "flowchat",
+    anchor,
+    maxConnections: -1,
+    allowLoopback: false,
+    endpoint: "Blank",
+  };
+  instance.addSourceSelector(selector, params);
+  instance.addTargetSelector(selector, params);
+}
 
 instance.bind("connection", (info) => {
   const conn = info.connection;
   const sourceId = (conn.source && conn.source.closest(".flow-node"))?.dataset.id;
   const targetId = (conn.target && conn.target.closest(".flow-node"))?.dataset.id;
-  dbg("connection handler", {
-    sourceId, targetId,
-    sourceClass: conn.source?.getAttribute("class"),
-    targetClass: conn.target?.getAttribute("class"),
-  });
 
   if (!sourceId || !targetId || sourceId === targetId) {
-    dbg("connection handler -> DELETE (missing/loopback ids)");
     instance.deleteConnection(conn);
     return;
   }
 
   for (const e of state.edges.values()) {
     if (e.source === sourceId && e.target === targetId) {
-      dbg("connection handler -> DELETE (duplicate edge)");
       instance.deleteConnection(conn);
       return;
     }
   }
 
-  dbg("connection handler -> KEEP", { sourceId, targetId });
   const edgeId = uid("e");
   state.edges.set(edgeId, { id: edgeId, source: sourceId, target: targetId, conn });
   drawMinimap();
@@ -400,8 +395,6 @@ function connectNodes(sourceId, targetId) {
     anchors: ["AutoDefault", "AutoDefault"],
     scope: "flowchat",
   });
-  const edgeId = uid("e");
-  state.edges.set(edgeId, { id: edgeId, source: sourceId, target: targetId, conn });
   drawMinimap();
   return conn;
 }

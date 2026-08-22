@@ -7,7 +7,7 @@ export function createPanZoom({ canvas, viewport, instance, onTransform }) {
   function apply() {
     canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
     canvas.style.transformOrigin = "0 0";
-    viewport.style.backgroundSize = `${GRID * zoom}px ${GRID * zoom}px`;
+    viewport.style.backgroundSize = `${GRID}px ${GRID}px`;
     viewport.style.backgroundPosition = `${panX}px ${panY}px`;
     instance.setZoom(zoom);
     instance.repaintEverything();
