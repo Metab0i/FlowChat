@@ -60,4 +60,4 @@ frontend/
 
 FlowChat depends only on permissively-licensed libraries (Flask BSD-3, openai
 Apache-2.0, httpx BSD-3, jsPlumb CE MIT, marked MIT, DOMPurify Apache-2.0/MPL,
-highlight.js BSD-3). It is an independent implementation, not a fork.
+highlight.js BSD-3).
