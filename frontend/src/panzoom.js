@@ -41,7 +41,12 @@ export function createPanZoom({ canvas, viewport, instance, onTransform }) {
         apply();
         return;
       }
-      if (inText) return;
+      if (inText) {
+        if (e.target.closest("textarea")) return;
+        const body = e.target.closest(".node-body");
+        const scrollable = body && body.scrollHeight > body.clientHeight + 1;
+        if (scrollable) return;
+      }
       e.preventDefault();
       panY -= e.deltaY;
       panX -= e.deltaX;

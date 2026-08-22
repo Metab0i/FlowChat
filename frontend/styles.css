@@ -170,7 +170,7 @@ body { display: flex; flex-direction: column; }
   min-height: 0;
   overflow: auto;
 }
-.node-body.folded { max-height: 8em; overflow: hidden; }
+.node-body.folded { max-height: 8em; overflow-y: auto; overflow-x: hidden; }
 
 .node-body {
   scrollbar-width: thin;
