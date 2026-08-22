@@ -4,6 +4,7 @@ import { getOutgoers, findAllDescendants, getConversationHistory } from "./histo
 import { renderMarkdownInto } from "./markdown.js";
 import { createPanZoom } from "./panzoom.js";
 import { makeResizable } from "./resize.js";
+import { applySelectionOverlays, clearSelectionOverlays, rangeToOffsets } from "./selection.js";
 
 const canvas = document.getElementById("canvas");
 const viewport = document.getElementById("viewport");
@@ -17,9 +18,15 @@ const inspectorContent = document.getElementById("inspector-content");
 const inspectorClose = document.getElementById("inspector-close");
 const inspectorResizer = document.getElementById("inspector-resizer");
 
+const quoteChip = document.getElementById("quote-chip");
+const quoteChipText = document.getElementById("quote-chip-text");
+const quoteChipClear = document.getElementById("quote-chip-clear");
+
 const state = {
   nodes: new Map(), // id -> { id, type, text, title, model, el, folded, loading }
   edges: new Map(), // id -> { id, source, target, conn }
+  selections: new Map(), // nodeId -> [{ id, nodeId, start, end, text, branches: [] }]
+  pendingSelection: null, // { nodeId, start, end, text }
   models: [],
   defaultModel: "",
   selectedIds: new Set(),
@@ -92,6 +99,8 @@ instance.bind("connection", (info) => {
   const edgeId = uid("e");
   state.edges.set(edgeId, { id: edgeId, source: sourceId, target: targetId, conn });
   drawMinimap();
+  refreshSelectionsForNode(sourceId);
+  refreshSelectionsForNode(targetId);
 });
 
 instance.bind("connection:detach", (info) => {
@@ -99,6 +108,8 @@ instance.bind("connection:detach", (info) => {
   for (const [id, e] of state.edges.entries()) {
     if (e.conn === conn) {
       state.edges.delete(id);
+      refreshSelectionsForNode(e.source);
+      refreshSelectionsForNode(e.target);
       break;
     }
   }
@@ -131,6 +142,7 @@ function renderNodeBody(node) {
     body.textContent = node.text || "";
   }
   syncFold(node);
+  applySelections(node, body);
 }
 
 function syncFold(node) {
@@ -182,6 +194,208 @@ function defaultNodeTitle(node) {
   return node.type === "userInput" ? "User Input" : "LLM Response";
 }
 
+/* ---------- text selections (quote & branch) ---------- */
+
+const DEFAULT_EDGE_STYLE = { stroke: "#6c757d", strokeWidth: 3 };
+const HIGHLIGHT_EDGE_STYLE = { stroke: "#0d6efd", strokeWidth: 5 };
+
+function findEdge(sourceId, targetId) {
+  for (const e of state.edges.values()) {
+    if (e.source === sourceId && e.target === targetId) return e;
+  }
+  return null;
+}
+
+function selectionIsActive(sel) {
+  return sel.branches.some((branchId) => findEdge(sel.nodeId, branchId));
+}
+
+function applySelections(node, rootEl, getZoom = () => panzoom.getZoom()) {
+  clearSelectionOverlays(rootEl);
+  const list = state.selections.get(node.id) || [];
+  const active = list.filter(selectionIsActive).map((s) => ({ id: s.id, start: s.start, end: s.end }));
+  if (!active.length) return;
+  applySelectionOverlays(rootEl, active, getZoom);
+}
+
+function refreshSelectionsForNode(nodeId) {
+  const node = state.nodes.get(nodeId);
+  if (!node) return;
+  const body = node.el.querySelector(".node-body");
+  if (body) applySelections(node, body);
+  if (state.inspectorNodeId === nodeId) applySelections(node, inspectorContent, () => 1);
+}
+
+function getSelectionById(id) {
+  for (const list of state.selections.values()) {
+    for (const s of list) {
+      if (s.id === id) return s;
+    }
+  }
+  return null;
+}
+
+function chainEdgesForSelection(sel) {
+  const result = [];
+  for (const branchId of sel.branches) {
+    const init = findEdge(sel.nodeId, branchId);
+    if (init) result.push(init);
+    const chainNodes = new Set([branchId, ...findAllDescendants(branchId, state.nodes, state.edges)]);
+    for (const edge of state.edges.values()) {
+      if (chainNodes.has(edge.source)) result.push(edge);
+    }
+  }
+  return result;
+}
+
+function setChainHighlight(selectionId, on) {
+  const sel = getSelectionById(selectionId);
+  if (!sel) return;
+  for (const e of chainEdgesForSelection(sel)) {
+    if (!e || !e.conn) continue;
+    e.conn.setPaintStyle(on ? HIGHLIGHT_EDGE_STYLE : DEFAULT_EDGE_STYLE);
+  }
+  instance.repaintEverything();
+}
+
+function setSelectionHover(selectionId, on) {
+  for (const o of document.querySelectorAll(`.flow-selection[data-selection-id="${selectionId}"]`)) {
+    o.classList.toggle("flow-selection-hover", on);
+  }
+}
+
+function recordSelection(pending, branchNodeId) {
+  const { nodeId, start, end, text } = pending;
+  const list = state.selections.get(nodeId) || [];
+
+  let merged = null;
+  for (const s of list) {
+    if (s.start <= end && start <= s.end) {
+      merged = s;
+      break;
+    }
+  }
+
+  if (merged) {
+    merged.start = Math.min(merged.start, start);
+    merged.end = Math.max(merged.end, end);
+    const node = state.nodes.get(nodeId);
+    const body = node && node.el.querySelector(".node-body");
+    if (body) {
+      const full = body.textContent || "";
+      merged.text = full.slice(merged.start, merged.end);
+    }
+    if (!merged.branches.includes(branchNodeId)) merged.branches.push(branchNodeId);
+  } else {
+    list.push({ id: uid("s"), nodeId, start, end, text, branches: [branchNodeId] });
+  }
+
+  state.selections.set(nodeId, list);
+  clearPendingSelection();
+  refreshSelectionsForNode(nodeId);
+}
+
+function containerForSelection(range) {
+  const anc = range.commonAncestorContainer;
+  const el = anc.nodeType === Node.TEXT_NODE ? anc.parentElement : anc;
+  const nodeBody = el && el.closest(".node-body");
+  if (nodeBody) {
+    const nodeEl = nodeBody.closest(".flow-node");
+    if (!nodeEl) return null;
+    if (nodeBody.contains(range.startContainer) && nodeBody.contains(range.endContainer)) {
+      return { nodeId: nodeEl.dataset.id, root: nodeBody };
+    }
+    return null;
+  }
+  if (
+    state.inspectorNodeId &&
+    inspectorContent.contains(range.startContainer) &&
+    inspectorContent.contains(range.endContainer)
+  ) {
+    return { nodeId: state.inspectorNodeId, root: inspectorContent };
+  }
+  return null;
+}
+
+function setPendingSelection(pending) {
+  state.pendingSelection = pending;
+  renderPendingChip();
+}
+
+function clearPendingSelection() {
+  if (!state.pendingSelection) return;
+  state.pendingSelection = null;
+  renderPendingChip();
+  const sel = window.getSelection();
+  if (sel && !sel.isCollapsed) sel.removeAllRanges();
+}
+
+function renderPendingChip() {
+  const p = state.pendingSelection;
+  if (!p) {
+    quoteChip.setAttribute("hidden", "");
+    return;
+  }
+  const node = state.nodes.get(p.nodeId);
+  const title = node ? node.title || defaultNodeTitle(node) : "node";
+  const text = String(p.text || "").replace(/\s+/g, " ").trim();
+  const label = text.length > 60 ? text.slice(0, 60) + "…" : text;
+  quoteChipText.textContent = `“${label}” · ${title}`;
+  quoteChip.removeAttribute("hidden");
+}
+
+quoteChipClear.addEventListener("click", (e) => {
+  e.stopPropagation();
+  clearPendingSelection();
+});
+
+document.addEventListener("selectionchange", () => {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+  const c = containerForSelection(range);
+  if (!c) return;
+  const { start, end, text } = rangeToOffsets(c.root, range);
+  if (start >= end) return;
+  setPendingSelection({ nodeId: c.nodeId, start, end, text });
+});
+
+document.addEventListener("mousedown", (e) => {
+  if (!state.pendingSelection) return;
+  if (e.target.closest && e.target.closest("#chat-bar")) return;
+  if (e.target.closest && e.target.closest(".flow-selection")) return;
+  clearPendingSelection();
+});
+
+window.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const tag = (e.target && e.target.tagName) || "";
+  const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target.isContentEditable;
+  if (typing) return;
+  if (!e.key || e.key.length !== 1 || !/[a-zA-Z0-9]/.test(e.key)) return;
+  e.preventDefault();
+  const input = document.getElementById("chat-input");
+  input.focus();
+  input.value += e.key;
+  input.setSelectionRange(input.value.length, input.value.length);
+});
+
+document.addEventListener("mouseover", (e) => {
+  const mark = e.target.closest && e.target.closest(".flow-selection");
+  if (!mark || !mark.dataset.selectionId) return;
+  setSelectionHover(mark.dataset.selectionId, true);
+  setChainHighlight(mark.dataset.selectionId, true);
+});
+
+document.addEventListener("mouseout", (e) => {
+  const mark = e.target.closest && e.target.closest(".flow-selection");
+  if (!mark || !mark.dataset.selectionId) return;
+  const related = e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest(".flow-selection");
+  if (related && related.dataset.selectionId === mark.dataset.selectionId) return;
+  setSelectionHover(mark.dataset.selectionId, false);
+  setChainHighlight(mark.dataset.selectionId, false);
+});
+
 /* ---------- inspector panel ---------- */
 
 function refreshInspector() {
@@ -201,6 +415,7 @@ function refreshInspector() {
   } else {
     inspectorContent.textContent = node.text || "";
   }
+  applySelections(node, inspectorContent, () => 1);
 }
 
 function openInspector(nodeId) {
@@ -243,6 +458,10 @@ window.addEventListener("mousemove", (e) => {
   if (!inspectorResizing) return;
   const w = Math.min(800, Math.max(240, inspectorResizing.startW + (e.clientX - inspectorResizing.startX)));
   inspector.style.width = `${w}px`;
+  if (state.inspectorNodeId) {
+    const node = state.nodes.get(state.inspectorNodeId);
+    if (node) applySelections(node, inspectorContent, () => 1);
+  }
 });
 window.addEventListener("mouseup", () => {
   if (!inspectorResizing) return;
@@ -493,6 +712,7 @@ function addNode(type, opts = {}) {
       }
       syncFold(node);
       instance.revalidate(node.el);
+      refreshSelectionsForNode(node.id);
       drawMinimap();
     },
   });
@@ -528,10 +748,23 @@ function deleteNode(id) {
   const node = state.nodes.get(id);
   if (!node) return;
 
+  const affected = new Set();
+
   for (const [edgeId, e] of [...state.edges.entries()]) {
     if (e.source === id || e.target === id) {
       state.edges.delete(edgeId);
+      affected.add(e.source === id ? e.target : e.source);
     }
+  }
+
+  state.selections.delete(id);
+  for (const [nodeId, list] of [...state.selections.entries()]) {
+    const next = list
+      .map((s) => ({ ...s, branches: s.branches.filter((b) => b !== id) }))
+      .filter((s) => s.branches.length > 0);
+    if (next.length === 0) state.selections.delete(nodeId);
+    else state.selections.set(nodeId, next);
+    affected.add(nodeId);
   }
 
   instance.unmanage(node.el, true);
@@ -540,6 +773,10 @@ function deleteNode(id) {
   if (state.contextNodeId === id) state.contextNodeId = null;
   if (state.inspectorNodeId === id) closeInspector();
   drawMinimap();
+
+  for (const nodeId of affected) {
+    refreshSelectionsForNode(nodeId);
+  }
 }
 
 function refreshSelection() {
@@ -780,33 +1017,50 @@ async function generateTitle(llmNode) {
   }
 }
 
-async function sendMessage(text) {
-  if (!text.trim()) return;
+function buildMessageWithSelection(text, pending) {
+  const msg = (text || "").trim();
+  if (!pending) return msg;
+  const quoted = String(pending.text || "")
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+  return msg ? `${msg}\n\n${quoted}` : quoted;
+}
 
-  const selected = [...state.selectedIds]
+async function sendMessage(text) {
+  const pending = state.pendingSelection;
+  if (!text.trim() && !pending) return;
+
+  const sourceIds = new Set(state.selectedIds);
+  if (pending && state.nodes.has(pending.nodeId)) sourceIds.add(pending.nodeId);
+
+  const sources = [...sourceIds]
     .map((id) => state.nodes.get(id))
     .filter(Boolean);
 
-  if (selected.length === 0) {
-    const userNode = addNode("userInput", { text });
+  const userText = buildMessageWithSelection(text, pending);
+
+  if (sources.length === 0) {
+    const userNode = addNode("userInput", { text: userText });
     const userPos = getNodePosition(userNode);
     const llmNode = addNode("llm", {
       position: { x: userPos.x, y: userPos.y + (userNode.el.offsetHeight || 100) + 60 },
     });
     connectNodes(userNode.id, llmNode.id);
     selectNode(llmNode.id);
+    clearPendingSelection();
     await generateResponse(llmNode.id);
     return;
   }
 
-  const first = selected[0];
+  const first = sources[0];
   const pos = getNodePosition(first);
   const userNode = addNode("userInput", {
-    text,
+    text: userText,
     position: { x: pos.x, y: pos.y + (first.el.offsetHeight || 100) + 60 },
   });
 
-  for (const src of selected) {
+  for (const src of sources) {
     connectNodes(src.id, userNode.id);
   }
 
@@ -815,6 +1069,10 @@ async function sendMessage(text) {
     position: { x: userPos.x, y: userPos.y + (userNode.el.offsetHeight || 100) + 60 },
   });
   connectNodes(userNode.id, llmNode.id);
+
+  if (pending) {
+    recordSelection(pending, userNode.id);
+  }
 
   selectNode(llmNode.id);
   await generateResponse(llmNode.id);
@@ -889,7 +1147,20 @@ function serialize() {
     source: e.source,
     target: e.target,
   }));
-  return { version: 1, nodes, edges };
+  const selections = [];
+  for (const list of state.selections.values()) {
+    for (const s of list) {
+      selections.push({
+        id: s.id,
+        nodeId: s.nodeId,
+        start: s.start,
+        end: s.end,
+        text: s.text,
+        branches: [...s.branches],
+      });
+    }
+  }
+  return { version: 2, nodes, edges, selections };
 }
 
 function clearAll() {
@@ -898,7 +1169,10 @@ function clearAll() {
   }
   state.nodes.clear();
   state.edges.clear();
+  state.selections.clear();
+  state.pendingSelection = null;
   state.selectedIds = new Set();
+  renderPendingChip();
 }
 
 function deserialize(data) {
@@ -924,6 +1198,27 @@ function deserialize(data) {
     const s = idMap[e.source];
     const t = idMap[e.target];
     if (s && t) connectNodes(s, t);
+  }
+
+  for (const raw of data.selections || []) {
+    const nodeId = idMap[raw.nodeId];
+    if (!nodeId) continue;
+    const branches = (raw.branches || []).map((b) => idMap[b]).filter(Boolean);
+    if (!branches.length) continue;
+    const list = state.selections.get(nodeId) || [];
+    list.push({
+      id: uid("s"),
+      nodeId,
+      start: raw.start ?? 0,
+      end: raw.end ?? 0,
+      text: raw.text || "",
+      branches,
+    });
+    state.selections.set(nodeId, list);
+  }
+
+  for (const node of state.nodes.values()) {
+    refreshSelectionsForNode(node.id);
   }
 
   drawMinimap();

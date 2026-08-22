@@ -39,6 +39,7 @@ body { display: flex; flex-direction: column; }
   font-size: 0.9rem;
   line-height: 1.6;
   word-break: break-word;
+  position: relative;
 }
 #inspector-content pre {
   background: var(--bs-tertiary-bg);
@@ -169,6 +170,7 @@ body { display: flex; flex-direction: column; }
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  position: relative;
 }
 .node-body.folded { max-height: 8em; overflow-y: auto; overflow-x: hidden; }
 
@@ -200,6 +202,20 @@ body { display: flex; flex-direction: column; }
   border-radius: var(--bs-border-radius-sm);
 }
 .node-body .markdown a { color: var(--bs-link-color); }
+
+/* Quote & branch selection highlights */
+.flow-selection {
+  position: absolute;
+  z-index: 4;
+  pointer-events: auto;
+  cursor: pointer;
+  border-radius: 3px;
+  background: rgba(255, 235, 59, 0.35);
+}
+.flow-selection:hover,
+.flow-selection-hover {
+  background: rgba(255, 213, 0, 0.45);
+}
 
 .node-editor {
   width: 100%;
@@ -261,6 +277,30 @@ body { display: flex; flex-direction: column; }
 #chat-bar { flex: 0 0 auto; z-index: 20; }
 #chat-input { height: 60px; resize: none; }
 #send-btn { height: 60px; white-space: nowrap; }
+
+/* Quote chip */
+#quote-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 340px;
+  flex: 0 0 auto;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  line-height: 1.3;
+  color: var(--bs-secondary-color);
+  background: var(--bs-tertiary-bg);
+  border: 1px dashed rgba(var(--bs-secondary-rgb), 0.5);
+  border-radius: var(--bs-border-radius);
+  white-space: nowrap;
+}
+#quote-chip[hidden] { display: none; }
+#quote-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#quote-chip-clear { font-size: 0.6rem; }
 
 /* Context menu */
 #context-menu {
