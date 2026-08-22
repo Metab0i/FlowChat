@@ -130,12 +130,31 @@ function renderNodeBody(node) {
   } else {
     body.textContent = node.text || "";
   }
-  body.classList.toggle("folded", !!node.folded && !node.loading);
+  syncFold(node);
+}
+
+function syncFold(node) {
+  const body = node.el.querySelector(".node-body");
+  if (!body) return;
+  body.classList.toggle("folded", !!node.folded && !node.loading && !node.h);
 
   const fold = node.el.querySelector(".fold");
   if (fold) {
     fold.textContent = node.folded ? "▸" : "▾";
     fold.setAttribute("title", node.folded ? "Expand" : "Collapse");
+  }
+
+  updateNodeFooter(node);
+}
+
+function updateNodeFooter(node) {
+  const body = node.el.querySelector(".node-body");
+  const footer = node.el.querySelector(".node-footer");
+  if (!body || !footer) return;
+  if (node.folded && !node.loading && body.scrollHeight > body.clientHeight + 1) {
+    footer.removeAttribute("hidden");
+  } else {
+    footer.setAttribute("hidden", "");
   }
 }
 
@@ -295,6 +314,15 @@ function createNodeElement(node) {
   const body = document.createElement("div");
   body.classList.add("card-body", "node-body", "p-2");
   el.appendChild(body);
+
+  const footer = document.createElement("div");
+  footer.classList.add("node-footer");
+  footer.setAttribute("hidden", "");
+  const more = document.createElement("span");
+  more.classList.add("node-more");
+  more.textContent = "···";
+  footer.appendChild(more);
+  el.appendChild(footer);
 
   const targetHandle = document.createElement("div");
   targetHandle.classList.add("port", "port-top");
@@ -459,15 +487,11 @@ function addNode(type, opts = {}) {
   makeResizable(node, {
     getZoom: () => panzoom.getZoom(),
     onResize: () => {
-      if (node.folded) {
-        node.folded = false;
-        node.el.querySelector(".node-body")?.classList.remove("folded");
-        const fold = node.el.querySelector(".fold");
-        if (fold) {
-          fold.textContent = "▾";
-          fold.setAttribute("title", "Collapse");
-        }
+      const body = node.el.querySelector(".node-body");
+      if (body && !node.loading) {
+        node.folded = body.scrollHeight > body.clientHeight + 1;
       }
+      syncFold(node);
       instance.revalidate(node.el);
       drawMinimap();
     },
@@ -857,7 +881,7 @@ function serialize() {
       x: pos.x,
       y: pos.y,
       w: n.el.offsetWidth || 260,
-      h: n.folded ? n.el.offsetHeight || 100 : null,
+      h: n.h,
     };
   });
   const edges = [...state.edges.values()].map((e) => ({
