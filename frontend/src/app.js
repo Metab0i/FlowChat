@@ -28,8 +28,8 @@ const instance = newInstance({
   connectionsDetachable: false,
   scope: "flowchat",
   connector: "Bezier",
-  paintStyle: { stroke: "#a8a8a8", strokeWidth: 3 },
-  hoverPaintStyle: { stroke: "#4b5563", strokeWidth: 3 },
+  paintStyle: { stroke: "#6c757d", strokeWidth: 3 },
+  hoverPaintStyle: { stroke: "#495057", strokeWidth: 3 },
 });
 
 const panzoom = createPanZoom({
@@ -117,28 +117,28 @@ function renderNodeBody(node) {
 function createNodeElement(node) {
   const el = document.createElement("div");
   node.el = el;
-  el.className = `flow-node ${node.type === "userInput" ? "user" : "llm"}`;
+  el.className = `flow-node card ${node.type === "userInput" ? "border-success bg-success-subtle" : "border-primary bg-primary-subtle"}`;
   el.dataset.id = node.id;
 
   const title = node.type === "userInput" ? "User Input" : "LLM Response";
   const regen = node.type === "userInput"
-    ? '<button class="act regenerate" title="Regenerate">♻️</button>'
+    ? '<button class="btn btn-sm btn-outline-secondary regenerate" title="Regenerate">🗘</button>'
     : "";
   const modelSelect = node.type === "llm"
-    ? '<select class="model-select" data-jtk-not-draggable></select>'
+    ? '<div class="px-2 pt-2"><select class="model-select form-select form-select-sm" data-jtk-not-draggable></select></div>'
     : "";
 
   el.innerHTML = `
-    <div class="node-header">
+    <div class="card-header node-header py-1 px-2">
       <span class="node-title"></span>
       <span class="node-actions">
         ${regen}
-        <button class="act fold" title="Fold">▾</button>
-        <button class="act delete" title="Delete">✕</button>
+        <button class="btn btn-sm btn-outline-secondary fold" title="Fold">▾</button>
+        <button class="btn btn-sm btn-outline-secondary delete" title="Delete">✕</button>
       </span>
     </div>
     ${modelSelect}
-    <div class="node-body"></div>
+    <div class="card-body node-body p-2"></div>
     <div class="handle target" data-node-id="${node.id}"></div>
     <div class="handle source" data-node-id="${node.id}"></div>
   `;
@@ -308,11 +308,19 @@ function deleteNode(id) {
 }
 
 function selectNode(id) {
-  state.selectedId = id;
+  state.selectedId = id || null;
   for (const n of state.nodes.values()) {
     n.el.classList.toggle("selected", n.id === id);
   }
 }
+
+function deselectAll() {
+  selectNode(null);
+}
+
+canvas.addEventListener("click", (e) => {
+  if (e.target === canvas) deselectAll();
+});
 
 function replicateNode(id) {
   const node = state.nodes.get(id);
@@ -399,12 +407,7 @@ async function generateResponse(llmNodeId) {
 async function sendMessage(text) {
   if (!text.trim()) return;
 
-  const selected = state.selectedId ? state.nodes.get(state.selectedId) : null;
-  let sourceNode = selected && selected.type === "llm" ? selected : null;
-  if (!sourceNode) {
-    const llmNodes = [...state.nodes.values()].filter((n) => n.type === "llm");
-    sourceNode = llmNodes[llmNodes.length - 1] || null;
-  }
+  const sourceNode = state.selectedId ? state.nodes.get(state.selectedId) : null;
 
   const pos = sourceNode ? getNodePosition(sourceNode) : null;
   const userNode = addNode("userInput", {
@@ -545,14 +548,6 @@ defaultModelSelect.addEventListener("change", (e) => {
   localStorage.setItem("flowchat.defaultModel", state.defaultModel);
 });
 
-document.getElementById("add-user-btn").addEventListener("click", () => {
-  addNode("userInput");
-});
-
-document.getElementById("add-llm-btn").addEventListener("click", () => {
-  addNode("llm");
-});
-
 sendBtn.addEventListener("click", () => {
   const text = chatInput.value;
   chatInput.value = "";
@@ -638,7 +633,7 @@ function drawMinimap() {
   const ox = (w - (maxX - minX) * scale) / 2 - minX * scale;
   const oy = (h - (maxY - minY) * scale) / 2 - minY * scale;
 
-  ctx.strokeStyle = "#9ca3af";
+  ctx.strokeStyle = "#adb5bd";
   ctx.lineWidth = 1;
   for (const e of state.edges.values()) {
     const s = state.nodes.get(e.source);
@@ -656,9 +651,9 @@ function drawMinimap() {
     const pos = getNodePosition(n);
     const bw = n.el.offsetWidth || 260;
     const bh = n.el.offsetHeight || 100;
-    ctx.fillStyle = n.type === "userInput" ? "#86efac" : "#93c5fd";
+    ctx.fillStyle = n.type === "userInput" ? "#d1e7dd" : "#cfe2ff";
     ctx.fillRect(pos.x * scale + ox, pos.y * scale + oy, bw * scale, bh * scale);
-    ctx.strokeStyle = "#6b7280";
+    ctx.strokeStyle = "#6c757d";
     ctx.strokeRect(pos.x * scale + ox, pos.y * scale + oy, bw * scale, bh * scale);
   }
 }
