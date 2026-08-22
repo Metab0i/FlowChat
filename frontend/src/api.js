@@ -9,17 +9,24 @@ export async function fetchModels() {
   return data.models || [];
 }
 
-export async function fetchTitle(model, content) {
-  const res = await fetch(`${API_BASE}/title`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, content }),
-  });
-  if (!res.ok) {
-    throw new Error(`Failed to fetch title (${res.status})`);
+export async function fetchTitle(model, content, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${API_BASE}/title`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, content }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch title (${res.status})`);
+    }
+    const data = await res.json();
+    return data.title || "";
+  } finally {
+    clearTimeout(timer);
   }
-  const data = await res.json();
-  return data.title || "";
 }
 
 export async function streamGenerate(model, conversation, onChunk) {
@@ -38,11 +45,7 @@ export async function streamGenerate(model, conversation, onChunk) {
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
+  function processBuffer() {
     let boundary = buffer.indexOf("\n\n");
     while (boundary !== -1) {
       const raw = buffer.slice(0, boundary);
@@ -55,12 +58,24 @@ export async function streamGenerate(model, conversation, onChunk) {
           throw new Error(data.error);
         }
         if (data.content === "[DONE]") {
-          return;
+          return true;
         }
         onChunk(data.content);
       }
 
       boundary = buffer.indexOf("\n\n");
+    }
+    return false;
+  }
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (value) buffer += decoder.decode(value, { stream: true });
+    if (processBuffer()) return;
+    if (done) {
+      buffer += decoder.decode();
+      if (processBuffer()) return;
+      break;
     }
   }
 }

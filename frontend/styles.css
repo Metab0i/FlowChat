@@ -16,6 +16,55 @@ body { display: flex; flex-direction: column; }
 #toolbar { flex: 0 0 auto; z-index: 20; }
 #default-model-select { width: 220px; }
 
+/* Main layout (inspector + viewport) */
+#main {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+}
+#inspector {
+  flex: 0 0 auto;
+  width: 380px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bs-body-bg);
+  border-right: 1px solid var(--bs-border-color);
+}
+#inspector[hidden] { display: none; }
+#inspector-content {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  word-break: break-word;
+}
+#inspector-content pre {
+  background: var(--bs-tertiary-bg);
+  border: 1px solid var(--bs-border-color);
+  padding: 12px;
+  border-radius: var(--bs-border-radius);
+  overflow: auto;
+}
+#inspector-content code { font-family: var(--bs-font-monospace); font-size: 0.85rem; }
+#inspector-content :not(pre) > code {
+  background: var(--bs-tertiary-bg);
+  padding: 1px 5px;
+  border-radius: var(--bs-border-radius-sm);
+}
+#inspector-content table { border-collapse: collapse; }
+#inspector-content th,
+#inspector-content td { border: 1px solid var(--bs-border-color); padding: 4px 8px; }
+#inspector-resizer {
+  flex: 0 0 6px;
+  cursor: ew-resize;
+  background: var(--bs-border-color);
+  opacity: 0.4;
+}
+#inspector-resizer:hover { opacity: 1; }
+#inspector-resizer[hidden] { display: none; }
+
 /* Viewport / canvas */
 #viewport {
   position: relative;
@@ -52,6 +101,8 @@ body { display: flex; flex-direction: column; }
 .flow-node {
   position: absolute;
   width: 300px;
+  display: flex;
+  flex-direction: column;
   cursor: move;
   user-select: none;
   box-shadow: var(--bs-box-shadow-sm);
@@ -65,6 +116,8 @@ body { display: flex; flex-direction: column; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex: 0 0 auto;
+  cursor: move;
 }
 .node-title { font-weight: 600; }
 
@@ -78,24 +131,7 @@ body { display: flex; flex-direction: column; }
 .node-actions .delete:hover { color: var(--bs-danger); border-color: var(--bs-danger); }
 
 .model-select { margin-bottom: 0.5rem; }
-
-.node-footer {
-  display: flex;
-  justify-content: center;
-  padding: 0.1rem 0 0.3rem;
-  border-top: 1px solid var(--bs-border-color);
-}
-.node-footer[hidden] { display: none; }
-.node-expand {
-  --bs-btn-padding-y: 0;
-  --bs-btn-padding-x: 0.5rem;
-  font-size: 1.1rem;
-  line-height: 1;
-  letter-spacing: 1px;
-  text-decoration: none;
-  color: var(--bs-secondary-color);
-}
-.node-expand:hover { color: var(--bs-body-color); }
+.node-model-wrap { flex: 0 0 auto; }
 
 .node-spinner { vertical-align: middle; }
 
@@ -114,9 +150,11 @@ body { display: flex; flex-direction: column; }
   white-space: pre-wrap;
   word-break: break-word;
   user-select: text;
-  cursor: default;
+  cursor: text;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
-.flow-node.border-success .node-body { cursor: text; }
 .node-body.folded { max-height: 8em; overflow: hidden; }
 
 .node-body .markdown > * { margin: 0.4em 0; }
@@ -175,6 +213,22 @@ body { display: flex; flex-direction: column; }
 .port-bottom { bottom: -13px; left: 50%; transform: translateX(-50%); }
 .port-left { left: -13px; top: 50%; transform: translateY(-50%); }
 .port-right { right: -13px; top: 50%; transform: translateY(-50%); }
+
+/* Resize handles */
+.resize-handle {
+  position: absolute;
+  touch-action: none;
+}
+.resize-nw { top: -6px; left: -6px; width: 12px; height: 12px; cursor: nw-resize; z-index: 7; }
+.resize-ne { top: -6px; right: -6px; width: 12px; height: 12px; cursor: ne-resize; z-index: 7; }
+.resize-sw { bottom: -6px; left: -6px; width: 12px; height: 12px; cursor: sw-resize; z-index: 7; }
+.resize-se { bottom: -6px; right: -6px; width: 12px; height: 12px; cursor: se-resize; z-index: 7; }
+.resize-n { top: -4px; left: 2px; right: 2px; height: 8px; cursor: n-resize; z-index: 5; }
+.resize-s { bottom: -4px; left: 2px; right: 2px; height: 8px; cursor: s-resize; z-index: 5; }
+.resize-e { right: -4px; top: 2px; bottom: 2px; width: 8px; cursor: e-resize; z-index: 5; }
+.resize-w { left: -4px; top: 2px; bottom: 2px; width: 8px; cursor: w-resize; z-index: 5; }
+.flow-node.resizing { user-select: none; }
+.flow-node.resizing .node-body { pointer-events: none; }
 
 /* Chat bar */
 #chat-bar { flex: 0 0 auto; z-index: 20; }

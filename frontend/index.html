@@ -20,6 +20,7 @@
 </head>
 <body>
   <div id="toolbar" class="d-flex align-items-center gap-2 px-3 py-2 bg-body-tertiary border-bottom">
+    <button id="inspector-toggle" class="btn btn-outline-secondary btn-sm" title="Toggle inspector panel">Inspector</button>
     <select id="default-model-select" class="form-select form-select-sm" title="Default model for new responses"></select>
     <div class="ms-auto d-flex align-items-center gap-2">
       <button id="export-btn" class="btn btn-outline-secondary btn-sm">Export</button>
@@ -28,10 +29,21 @@
     </div>
   </div>
 
-  <div id="viewport">
-    <div id="canvas"></div>
-    <div id="selection-rect"></div>
-    <div id="minimap"></div>
+  <div id="main">
+    <aside id="inspector" hidden>
+      <div id="inspector-header" class="d-flex align-items-center gap-2 px-3 py-2 bg-body-tertiary border-bottom">
+        <span id="inspector-badge" class="badge"></span>
+        <strong id="inspector-title" class="text-truncate flex-grow-1"></strong>
+        <button id="inspector-close" class="btn-close" title="Close" aria-label="Close"></button>
+      </div>
+      <div id="inspector-content" class="p-3"></div>
+    </aside>
+    <div id="inspector-resizer" hidden></div>
+    <div id="viewport">
+      <div id="canvas"></div>
+      <div id="selection-rect"></div>
+      <div id="minimap"></div>
+    </div>
   </div>
 
   <div id="chat-bar" class="d-flex align-items-center gap-2 px-3 py-2 bg-body border-top">

@@ -3,10 +3,19 @@ import { fetchModels, fetchTitle, streamGenerate } from "./api.js";
 import { getOutgoers, findAllDescendants, getConversationHistory } from "./history.js";
 import { renderMarkdownInto } from "./markdown.js";
 import { createPanZoom } from "./panzoom.js";
+import { makeResizable } from "./resize.js";
 
 const canvas = document.getElementById("canvas");
 const viewport = document.getElementById("viewport");
 const minimapEl = document.getElementById("minimap");
+
+const inspector = document.getElementById("inspector");
+const inspectorToggle = document.getElementById("inspector-toggle");
+const inspectorBadge = document.getElementById("inspector-badge");
+const inspectorTitle = document.getElementById("inspector-title");
+const inspectorContent = document.getElementById("inspector-content");
+const inspectorClose = document.getElementById("inspector-close");
+const inspectorResizer = document.getElementById("inspector-resizer");
 
 const state = {
   nodes: new Map(), // id -> { id, type, text, title, model, el, folded, loading }
@@ -15,6 +24,7 @@ const state = {
   defaultModel: "",
   selectedIds: new Set(),
   contextNodeId: null,
+  inspectorNodeId: null,
 };
 
 let seq = 0;
@@ -31,6 +41,8 @@ const instance = newInstance({
   paintStyle: { stroke: "#6c757d", strokeWidth: 3 },
   hoverPaintStyle: { stroke: "#495057", strokeWidth: 3 },
 });
+
+instance.addDragFilter((e) => e.target.closest?.(".node-body"));
 
 const panzoom = createPanZoom({
   canvas,
@@ -120,10 +132,10 @@ function renderNodeBody(node) {
   }
   body.classList.toggle("folded", !!node.folded && !node.loading);
 
-  const footer = node.el.querySelector(".node-footer");
-  if (footer) {
-    if (body.scrollHeight <= body.clientHeight + 1) footer.setAttribute("hidden", "");
-    else footer.removeAttribute("hidden");
+  const fold = node.el.querySelector(".fold");
+  if (fold) {
+    fold.textContent = node.folded ? "▸" : "▾";
+    fold.setAttribute("title", node.folded ? "Expand" : "Collapse");
   }
 }
 
@@ -150,6 +162,74 @@ function renderNodeTitle(node) {
 function defaultNodeTitle(node) {
   return node.type === "userInput" ? "User Input" : "LLM Response";
 }
+
+/* ---------- inspector panel ---------- */
+
+function refreshInspector() {
+  const node = state.inspectorNodeId ? state.nodes.get(state.inspectorNodeId) : null;
+  if (!node) {
+    inspectorBadge.textContent = "";
+    inspectorBadge.className = "badge";
+    inspectorTitle.textContent = "";
+    inspectorContent.replaceChildren();
+    return;
+  }
+  inspectorBadge.textContent = node.type === "userInput" ? "User" : "LLM";
+  inspectorBadge.className = `badge ${node.type === "userInput" ? "text-bg-success" : "text-bg-primary"}`;
+  inspectorTitle.textContent = node.title || defaultNodeTitle(node);
+  if (node.type === "llm") {
+    renderMarkdownInto(inspectorContent, node.text || "");
+  } else {
+    inspectorContent.textContent = node.text || "";
+  }
+}
+
+function openInspector(nodeId) {
+  state.inspectorNodeId = nodeId;
+  inspector.removeAttribute("hidden");
+  inspectorResizer.removeAttribute("hidden");
+  refreshInspector();
+}
+
+function showInspector() {
+  inspector.removeAttribute("hidden");
+  inspectorResizer.removeAttribute("hidden");
+  if (!state.inspectorNodeId) {
+    state.inspectorNodeId = [...state.selectedIds][0] || null;
+  }
+  refreshInspector();
+}
+
+function closeInspector() {
+  state.inspectorNodeId = null;
+  inspector.setAttribute("hidden", "");
+  inspectorResizer.setAttribute("hidden", "");
+  refreshInspector();
+}
+
+inspectorToggle.addEventListener("click", () => {
+  if (inspector.hasAttribute("hidden")) showInspector();
+  else closeInspector();
+});
+
+inspectorClose.addEventListener("click", closeInspector);
+
+let inspectorResizing = null;
+inspectorResizer.addEventListener("mousedown", (e) => {
+  e.preventDefault();
+  inspectorResizing = { startX: e.clientX, startW: inspector.offsetWidth };
+  document.body.style.cursor = "ew-resize";
+});
+window.addEventListener("mousemove", (e) => {
+  if (!inspectorResizing) return;
+  const w = Math.min(800, Math.max(240, inspectorResizing.startW + (e.clientX - inspectorResizing.startX)));
+  inspector.style.width = `${w}px`;
+});
+window.addEventListener("mouseup", () => {
+  if (!inspectorResizing) return;
+  inspectorResizing = null;
+  document.body.style.cursor = "";
+});
 
 function createNodeElement(node) {
   const el = document.createElement("div");
@@ -204,7 +284,7 @@ function createNodeElement(node) {
 
   if (node.type === "llm") {
     const modelWrap = document.createElement("div");
-    modelWrap.classList.add("px-2", "pt-2");
+    modelWrap.classList.add("node-model-wrap", "px-2", "pt-2");
     const select = document.createElement("select");
     select.classList.add("model-select", "form-select", "form-select-sm");
     select.setAttribute("data-jtk-not-draggable", "true");
@@ -215,16 +295,6 @@ function createNodeElement(node) {
   const body = document.createElement("div");
   body.classList.add("card-body", "node-body", "p-2");
   el.appendChild(body);
-
-  const footer = document.createElement("div");
-  footer.classList.add("node-footer");
-  footer.setAttribute("hidden", "");
-  const expand = document.createElement("button");
-  expand.classList.add("btn", "btn-sm", "btn-link", "p-1", "node-expand");
-  expand.setAttribute("title", "Expand");
-  expand.textContent = "...";
-  footer.appendChild(expand);
-  el.appendChild(footer);
 
   const targetHandle = document.createElement("div");
   targetHandle.classList.add("port", "port-top");
@@ -263,13 +333,11 @@ function createNodeElement(node) {
   el.querySelector(".fold").addEventListener("click", (e) => {
     e.stopPropagation();
     node.folded = !node.folded;
+    node.h = null;
+    node.el.style.height = "";
     renderNodeBody(node);
-  });
-
-  el.querySelector(".node-expand").addEventListener("click", (e) => {
-    e.stopPropagation();
-    node.folded = false;
-    renderNodeBody(node);
+    instance.revalidate(node.el);
+    drawMinimap();
   });
 
   if (node.type === "userInput") {
@@ -282,6 +350,12 @@ function createNodeElement(node) {
   el.addEventListener("click", (e) => {
     if (e.shiftKey) toggleSelectNode(node.id);
     else selectNode(node.id);
+  });
+  el.addEventListener("dblclick", (e) => {
+    if (e.target.closest("button, select, input, textarea, a")) return;
+    if (node.type === "userInput" && e.target.closest(".node-body")) return;
+    e.stopPropagation();
+    openInspector(node.id);
   });
   el.addEventListener("contextmenu", (e) => {
     e.preventDefault();
@@ -341,12 +415,14 @@ function finishEdit(node) {
   node.text = ta.value;
 
   const body = document.createElement("div");
-  body.classList.add("node-body");
+  body.classList.add("card-body", "node-body", "p-2");
   body.addEventListener("dblclick", () => beginEdit(node));
   ta.replaceWith(body);
   node._editor = null;
 
   renderNodeBody(node);
+
+  if (state.inspectorNodeId === node.id) refreshInspector();
 }
 
 /* ---------- node / edge management ---------- */
@@ -360,6 +436,8 @@ function addNode(type, opts = {}) {
     model: opts.model ?? (type === "llm" ? state.defaultModel : undefined),
     folded: type === "llm" ? true : false,
     loading: false,
+    w: opts.w ?? null,
+    h: opts.h ?? null,
   };
 
   node.el = createNodeElement(node);
@@ -374,7 +452,26 @@ function addNode(type, opts = {}) {
   node.el.style.left = `${pos.x}px`;
   node.el.style.top = `${pos.y}px`;
 
+  if (node.w) node.el.style.width = `${node.w}px`;
+  if (node.h) node.el.style.height = `${node.h}px`;
+
   instance.manage(node.el);
+  makeResizable(node, {
+    getZoom: () => panzoom.getZoom(),
+    onResize: () => {
+      if (node.folded) {
+        node.folded = false;
+        node.el.querySelector(".node-body")?.classList.remove("folded");
+        const fold = node.el.querySelector(".fold");
+        if (fold) {
+          fold.textContent = "▾";
+          fold.setAttribute("title", "Collapse");
+        }
+      }
+      instance.revalidate(node.el);
+      drawMinimap();
+    },
+  });
   state.nodes.set(node.id, node);
   drawMinimap();
   return node;
@@ -417,6 +514,7 @@ function deleteNode(id) {
   state.nodes.delete(id);
   state.selectedIds.delete(id);
   if (state.contextNodeId === id) state.contextNodeId = null;
+  if (state.inspectorNodeId === id) closeInspector();
   drawMinimap();
 }
 
@@ -595,6 +693,7 @@ async function generateResponse(llmNodeId) {
       const now = performance.now();
       if (!llmNode._lastRender || now - llmNode._lastRender > 120) {
         renderNodeBody(llmNode);
+        if (state.inspectorNodeId === llmNode.id) refreshInspector();
         llmNode._lastRender = now;
       }
     });
@@ -604,6 +703,7 @@ async function generateResponse(llmNodeId) {
     llmNode.loading = false;
     updateSpinner(llmNode);
     renderNodeBody(llmNode);
+    if (state.inspectorNodeId === llmNode.id) refreshInspector();
     generateTitle(llmNode);
   }
 }
@@ -616,27 +716,43 @@ function updateSpinner(node) {
 }
 
 function deriveTitle(text) {
-  const plain = text
+  const src = String(text || "");
+  let plain = src
     .replace(/```[\s\S]*?```/g, " ")
-    .replace(/[#>*_`~\[\]()!-]/g, " ")
+    .replace(/~~~[\s\S]*?~~~/g, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/[#>*_`~|\[\]()!]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  const words = plain.split(" ").filter(Boolean).slice(0, 5);
-  if (words.length === 0) return "";
-  return words.join(" ");
+  let words = plain.split(" ").filter(Boolean);
+  if (words.length === 0) {
+    words = src.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  }
+  return words.slice(0, 5).join(" ").trim();
 }
 
 async function generateTitle(llmNode) {
-  let title = "";
-  try {
-    title = await fetchTitle(llmNode.model, llmNode.text);
-  } catch (err) {
-    console.error("Title generation failed:", err);
-  }
-  if (!title) title = deriveTitle(llmNode.text);
-  if (title) {
-    llmNode.title = title;
+  const fallback = deriveTitle(llmNode.text);
+  if (fallback) {
+    llmNode.title = fallback;
     renderNodeTitle(llmNode);
+    if (state.inspectorNodeId === llmNode.id) refreshInspector();
+  }
+
+  let better = "";
+  try {
+    better = await fetchTitle(llmNode.model, llmNode.text, 15000);
+    console.log("[FC-title]", llmNode.id, "model=", llmNode.model, "title=", JSON.stringify(better));
+  } catch (err) {
+    console.warn("[FC-title] fetchTitle failed, keeping fallback:", err?.message || err);
+  }
+  if (better && better !== llmNode.title) {
+    llmNode.title = better;
+    renderNodeTitle(llmNode);
+    if (state.inspectorNodeId === llmNode.id) refreshInspector();
   }
 }
 
@@ -740,6 +856,8 @@ function serialize() {
       folded: !!n.folded,
       x: pos.x,
       y: pos.y,
+      w: n.el.offsetWidth || 260,
+      h: n.folded ? n.el.offsetHeight || 100 : null,
     };
   });
   const edges = [...state.edges.values()].map((e) => ({
@@ -769,6 +887,8 @@ function deserialize(data) {
       title: raw.title,
       model: raw.model,
       position: { x: raw.x || 0, y: raw.y || 0 },
+      w: raw.w,
+      h: raw.h,
     });
     node.folded = !!raw.folded;
     renderNodeTitle(node);
