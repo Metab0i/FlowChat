@@ -118,7 +118,7 @@ function renderNodeBody(node) {
   body.classList.toggle("folded", !!node.folded && !node.loading);
 
   const footer = node.el.querySelector(".node-footer");
-  if (footer) footer.hidden = !node.folded || node.loading;
+  if (footer) footer.hidden = body.scrollHeight <= body.clientHeight + 1;
 }
 
 function loadingPlaceholder() {
@@ -166,7 +166,7 @@ function createNodeElement(node) {
     ${modelSelect}
     <div class="card-body node-body p-2"></div>
     <div class="node-footer" hidden>
-      <button class="btn btn-sm btn-link node-expand" title="Expand">...</button>
+      <button class="btn btn-sm btn-link p-1 node-expand" title="Expand">...</button>
     </div>
     <div class="handle target" data-node-id="${node.id}"></div>
     <div class="handle source" data-node-id="${node.id}"></div>
