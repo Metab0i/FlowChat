@@ -21,7 +21,9 @@ body { display: flex; flex-direction: column; }
   position: relative;
   flex: 1 1 auto;
   overflow: hidden;
-  background: var(--bs-body-bg);
+  background-color: var(--bs-body-bg);
+  background-image: radial-gradient(circle, #9e9e9e 1px, transparent 1.5px);
+  background-size: 24px 24px;
   cursor: default;
 }
 #viewport.pan-mode { cursor: grab; }
@@ -148,20 +150,31 @@ body { display: flex; flex-direction: column; }
   user-select: text;
 }
 
-/* Connection handles */
-.handle {
+/* Connection ports */
+.port {
   position: absolute;
-  left: 50%;
-  width: 14px;
-  height: 14px;
+  width: 26px;
+  height: 26px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: crosshair;
+}
+.port::before {
+  content: "";
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
+  display: block;
+  background: var(--bs-teal);
   border: 2px solid #fff;
   box-shadow: 0 0 0 1px var(--bs-border-color);
 }
-.handle.target { top: -8px; background: var(--bs-teal); }
-.handle.source { bottom: -8px; background: var(--bs-teal); }
+.port-top { top: -13px; left: 50%; transform: translateX(-50%); }
+.port-bottom { bottom: -13px; left: 50%; transform: translateX(-50%); }
+.port-left { left: -13px; top: 50%; transform: translateY(-50%); }
+.port-right { right: -13px; top: 50%; transform: translateY(-50%); }
 
 /* Chat bar */
 #chat-bar { flex: 0 0 auto; z-index: 20; }

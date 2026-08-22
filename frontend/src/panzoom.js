@@ -1,4 +1,5 @@
 export function createPanZoom({ canvas, viewport, instance, onTransform }) {
+  const GRID = 24;
   let zoom = 1;
   let panX = 0;
   let panY = 0;
@@ -6,6 +7,8 @@ export function createPanZoom({ canvas, viewport, instance, onTransform }) {
   function apply() {
     canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
     canvas.style.transformOrigin = "0 0";
+    viewport.style.backgroundSize = `${GRID * zoom}px ${GRID * zoom}px`;
+    viewport.style.backgroundPosition = `${panX}px ${panY}px`;
     instance.setZoom(zoom);
     instance.repaintEverything();
     if (onTransform) onTransform({ zoom, panX, panY });
@@ -18,17 +21,23 @@ export function createPanZoom({ canvas, viewport, instance, onTransform }) {
   viewport.addEventListener(
     "wheel",
     (e) => {
-      if (!isPanModifier(e)) return;
+      if (e.target && e.target.closest && e.target.closest("pre, textarea")) return;
       e.preventDefault();
-      const rect = viewport.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-      const newZoom = Math.min(3, Math.max(0.2, zoom * factor));
-
-      panX = mx - ((mx - panX) / zoom) * newZoom;
-      panY = my - ((my - panY) / zoom) * newZoom;
-      zoom = newZoom;
+      if (isPanModifier(e)) {
+        const rect = viewport.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+        const newZoom = Math.min(3, Math.max(0.2, zoom * factor));
+        panX = mx - ((mx - panX) / zoom) * newZoom;
+        panY = my - ((my - panY) / zoom) * newZoom;
+        zoom = newZoom;
+      } else if (e.shiftKey) {
+        panX -= e.deltaY || e.deltaX;
+      } else {
+        panY -= e.deltaY;
+        panX -= e.deltaX;
+      }
       apply();
     },
     { passive: false }

@@ -41,17 +41,17 @@ const panzoom = createPanZoom({
 
 /* ---------- jsPlumb source/target selectors ---------- */
 
-instance.addSourceSelector(".flow-node .source", {
+instance.addSourceSelector(".flow-node .port", {
   scope: "flowchat",
-  anchor: "Center",
+  anchor: "AutoDefault",
   maxConnections: -1,
   allowLoopback: false,
   endpoint: "Blank",
 });
 
-instance.addTargetSelector(".flow-node .target", {
+instance.addTargetSelector(".flow-node .port", {
   scope: "flowchat",
-  anchor: "Center",
+  anchor: "AutoDefault",
   maxConnections: -1,
   allowLoopback: false,
   endpoint: "Blank",
@@ -61,19 +61,27 @@ instance.bind("connection", (info) => {
   const conn = info.connection;
   const sourceId = (conn.source && conn.source.closest(".flow-node"))?.dataset.id;
   const targetId = (conn.target && conn.target.closest(".flow-node"))?.dataset.id;
+  dbg("connection handler", {
+    sourceId, targetId,
+    sourceClass: conn.source?.getAttribute("class"),
+    targetClass: conn.target?.getAttribute("class"),
+  });
 
   if (!sourceId || !targetId || sourceId === targetId) {
+    dbg("connection handler -> DELETE (missing/loopback ids)");
     instance.deleteConnection(conn);
     return;
   }
 
   for (const e of state.edges.values()) {
     if (e.source === sourceId && e.target === targetId) {
+      dbg("connection handler -> DELETE (duplicate edge)");
       instance.deleteConnection(conn);
       return;
     }
   }
 
+  dbg("connection handler -> KEEP", { sourceId, targetId });
   const edgeId = uid("e");
   state.edges.set(edgeId, { id: edgeId, source: sourceId, target: targetId, conn });
   drawMinimap();
@@ -224,14 +232,24 @@ function createNodeElement(node) {
   el.appendChild(footer);
 
   const targetHandle = document.createElement("div");
-  targetHandle.classList.add("handle", "target");
+  targetHandle.classList.add("port", "port-top");
   targetHandle.dataset.nodeId = node.id;
   el.appendChild(targetHandle);
 
+  const rightPort = document.createElement("div");
+  rightPort.classList.add("port", "port-right");
+  rightPort.dataset.nodeId = node.id;
+  el.appendChild(rightPort);
+
   const sourceHandle = document.createElement("div");
-  sourceHandle.classList.add("handle", "source");
+  sourceHandle.classList.add("port", "port-bottom");
   sourceHandle.dataset.nodeId = node.id;
   el.appendChild(sourceHandle);
+
+  const leftPort = document.createElement("div");
+  leftPort.classList.add("port", "port-left");
+  leftPort.dataset.nodeId = node.id;
+  el.appendChild(leftPort);
 
   renderNodeTitle(node);
 
@@ -379,7 +397,7 @@ function connectNodes(sourceId, targetId) {
   const conn = instance.connect({
     source: source.el,
     target: target.el,
-    anchors: ["Bottom", "Top"],
+    anchors: ["AutoDefault", "AutoDefault"],
     scope: "flowchat",
   });
   const edgeId = uid("e");

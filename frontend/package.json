@@ -9,5 +9,8 @@
     "@jsplumb/browser-ui": "^6.2.10",
     "dompurify": "^3.1.6",
     "marked": "^12.0.2"
+  },
+  "devDependencies": {
+    "puppeteer": "^25.8.0"
   }
 }
