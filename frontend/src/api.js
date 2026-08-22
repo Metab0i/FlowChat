@@ -9,6 +9,19 @@ export async function fetchModels() {
   return data.models || [];
 }
 
+export async function fetchTitle(model, content) {
+  const res = await fetch(`${API_BASE}/title`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model, content }),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch title (${res.status})`);
+  }
+  const data = await res.json();
+  return data.title || "";
+}
+
 export async function streamGenerate(model, conversation, onChunk) {
   const res = await fetch(`${API_BASE}/generate`, {
     method: "POST",

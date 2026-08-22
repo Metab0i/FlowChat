@@ -1,5 +1,5 @@
 import { newInstance } from "@jsplumb/browser-ui";
-import { fetchModels, streamGenerate } from "./api.js";
+import { fetchModels, fetchTitle, streamGenerate } from "./api.js";
 import { getOutgoers, findAllDescendants, getConversationHistory } from "./history.js";
 import { renderMarkdownInto } from "./markdown.js";
 import { createPanZoom } from "./panzoom.js";
@@ -9,7 +9,7 @@ const viewport = document.getElementById("viewport");
 const minimapEl = document.getElementById("minimap");
 
 const state = {
-  nodes: new Map(), // id -> { id, type, text, model, el, folded }
+  nodes: new Map(), // id -> { id, type, text, title, model, el, folded, loading }
   edges: new Map(), // id -> { id, source, target, conn }
   models: [],
   defaultModel: "",
@@ -107,11 +107,33 @@ function renderNodeBody(node) {
   const body = node.el.querySelector(".node-body");
   if (!body) return;
   if (node.type === "llm") {
-    renderMarkdownInto(body, node.text || "");
+    if (node.loading && !node.text) {
+      body.innerHTML = loadingPlaceholder();
+    } else {
+      renderMarkdownInto(body, node.text || "");
+    }
   } else {
     body.textContent = node.text || "";
   }
-  body.classList.toggle("folded", !!node.folded);
+  body.classList.toggle("folded", !!node.folded && !node.loading);
+
+  const footer = node.el.querySelector(".node-footer");
+  if (footer) footer.hidden = !node.folded || node.loading;
+}
+
+function loadingPlaceholder() {
+  const words = [8, 2, 5, 3, 9, 4, 6.2, 3, 5, 1];
+  return `<div class="placeholder-glow" aria-hidden="true">${words.map((w) => `<span class="placeholder placeholder-word" style="width:${w}em"></span>`).join(" ")}</div>`;
+}
+
+function renderNodeTitle(node) {
+  const titleEl = node.el.querySelector(".node-title");
+  if (!titleEl) return;
+  titleEl.textContent = node.title || defaultNodeTitle(node);
+}
+
+function defaultNodeTitle(node) {
+  return node.type === "userInput" ? "User Input" : "LLM Response";
 }
 
 function createNodeElement(node) {
@@ -120,9 +142,12 @@ function createNodeElement(node) {
   el.className = `flow-node card ${node.type === "userInput" ? "border-success bg-success-subtle" : "border-primary bg-primary-subtle"}`;
   el.dataset.id = node.id;
 
-  const title = node.type === "userInput" ? "User Input" : "LLM Response";
+  const title = defaultNodeTitle(node);
   const regen = node.type === "userInput"
     ? '<button class="btn btn-sm btn-outline-secondary regenerate" title="Regenerate">🗘</button>'
+    : "";
+  const spinner = node.type === "llm"
+    ? '<span class="spinner-border spinner-border-sm text-primary node-spinner" role="status" hidden></span>'
     : "";
   const modelSelect = node.type === "llm"
     ? '<div class="px-2 pt-2"><select class="model-select form-select form-select-sm" data-jtk-not-draggable></select></div>'
@@ -133,17 +158,21 @@ function createNodeElement(node) {
       <span class="node-title"></span>
       <span class="node-actions">
         ${regen}
+        ${spinner}
         <button class="btn btn-sm btn-outline-secondary fold" title="Fold">▾</button>
         <button class="btn btn-sm btn-outline-secondary delete" title="Delete">✕</button>
       </span>
     </div>
     ${modelSelect}
     <div class="card-body node-body p-2"></div>
+    <div class="node-footer" hidden>
+      <button class="btn btn-sm btn-link node-expand" title="Expand">...</button>
+    </div>
     <div class="handle target" data-node-id="${node.id}"></div>
     <div class="handle source" data-node-id="${node.id}"></div>
   `;
 
-  el.querySelector(".node-title").textContent = title;
+  renderNodeTitle(node);
 
   if (node.type === "llm") {
     populateModelSelect(el.querySelector(".model-select"), node.model);
@@ -160,6 +189,12 @@ function createNodeElement(node) {
   el.querySelector(".fold").addEventListener("click", (e) => {
     e.stopPropagation();
     node.folded = !node.folded;
+    renderNodeBody(node);
+  });
+
+  el.querySelector(".node-expand").addEventListener("click", (e) => {
+    e.stopPropagation();
+    node.folded = false;
     renderNodeBody(node);
   });
 
@@ -180,8 +215,10 @@ function createNodeElement(node) {
     showContextMenu(node.id, e.clientX, e.clientY);
   });
 
-  const body = el.querySelector(".node-body");
-  body.addEventListener("dblclick", () => beginEdit(node));
+  if (node.type === "userInput") {
+    const body = el.querySelector(".node-body");
+    body.addEventListener("dblclick", () => beginEdit(node));
+  }
 
   renderNodeBody(node);
   return el;
@@ -246,8 +283,10 @@ function addNode(type, opts = {}) {
     id: uid(type),
     type,
     text: opts.text ?? (type === "userInput" ? "New user input" : ""),
+    title: opts.title ?? null,
     model: opts.model ?? (type === "llm" ? state.defaultModel : undefined),
     folded: type === "llm" ? true : false,
+    loading: false,
   };
 
   node.el = createNodeElement(node);
@@ -415,6 +454,7 @@ function replicateNode(id) {
   const pos = getNodePosition(node);
   const copy = addNode(node.type, {
     text: node.text,
+    title: node.title,
     model: node.model,
     position: { x: pos.x + 220, y: pos.y + 20 },
   });
@@ -471,6 +511,10 @@ async function generateResponse(llmNodeId) {
   if (!llmNode) return;
 
   llmNode.text = "";
+  llmNode.loading = true;
+  llmNode.title = null;
+  renderNodeTitle(llmNode);
+  updateSpinner(llmNode);
   renderNodeBody(llmNode);
 
   const history = getConversationHistory(llmNode, state.nodes, state.edges);
@@ -486,7 +530,40 @@ async function generateResponse(llmNodeId) {
   } catch (err) {
     llmNode.text += `\n\n[error] ${err.message}`;
   } finally {
+    llmNode.loading = false;
+    updateSpinner(llmNode);
     renderNodeBody(llmNode);
+    generateTitle(llmNode);
+  }
+}
+
+function updateSpinner(node) {
+  const spinner = node.el.querySelector(".node-spinner");
+  if (spinner) spinner.hidden = !node.loading;
+}
+
+function deriveTitle(text) {
+  const plain = text
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/[#>*_`~\[\]()!-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = plain.split(" ").filter(Boolean).slice(0, 5);
+  if (words.length === 0) return "";
+  return words.join(" ");
+}
+
+async function generateTitle(llmNode) {
+  let title = "";
+  try {
+    title = await fetchTitle(llmNode.model, llmNode.text);
+  } catch (err) {
+    console.error("Title generation failed:", err);
+  }
+  if (!title) title = deriveTitle(llmNode.text);
+  if (title) {
+    llmNode.title = title;
+    renderNodeTitle(llmNode);
   }
 }
 
@@ -585,6 +662,7 @@ function serialize() {
       id: n.id,
       type: n.type,
       text: n.text,
+      title: n.title || null,
       model: n.model,
       folded: !!n.folded,
       x: pos.x,
@@ -615,10 +693,12 @@ function deserialize(data) {
   for (const raw of data.nodes || []) {
     const node = addNode(raw.type, {
       text: raw.text,
+      title: raw.title,
       model: raw.model,
       position: { x: raw.x || 0, y: raw.y || 0 },
     });
     node.folded = !!raw.folded;
+    renderNodeTitle(node);
     renderNodeBody(node);
     idMap[raw.id] = node.id;
   }

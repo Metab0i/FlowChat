@@ -25,6 +25,12 @@ def load_system_prompt():
 
 SYSTEM_PROMPT = load_system_prompt()
 
+TITLE_SYSTEM_PROMPT = (
+    "You are a title generator. Given a message, write a very concise title "
+    "(at most 5 words) that summarizes it. Reply with only the title, with no "
+    "quotes, no trailing punctuation, and no extra text."
+)
+
 
 @app.route("/")
 def index():
@@ -58,6 +64,26 @@ def generate_route():
 @app.route("/models", methods=["GET"])
 def models_route():
     return jsonify(list_models())
+
+
+@app.route("/title", methods=["POST"])
+def title_route():
+    data = request.get_json(force=True)
+    model = data.get("model")
+    content = data.get("content", "")
+    user_content = json.dumps({"content": content})
+
+    try:
+        parts = []
+        for chunk in generate(
+            model=model, system_prompt=TITLE_SYSTEM_PROMPT, user_content=user_content
+        ):
+            parts.append(chunk)
+        title = "".join(parts).strip()
+        title = title.replace('"', "").strip()
+        return jsonify({"title": title})
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"title": "", "error": str(exc)}), 500
 
 
 if __name__ == "__main__":
