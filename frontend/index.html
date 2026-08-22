@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FlowChat</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "@jsplumb/browser-ui": "./node_modules/@jsplumb/browser-ui/js/jsplumb.browser-ui.es.js",
+      "marked": "./node_modules/marked/lib/marked.esm.js",
+      "dompurify": "./node_modules/dompurify/dist/purify.es.mjs",
+      "highlight.js": "./node_modules/@highlightjs/cdn-assets/es/highlight.min.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="toolbar">
+    <select id="default-model-select" title="Default model for new responses"></select>
+    <button id="add-user-btn" class="btn green">Add User Input</button>
+    <button id="add-llm-btn" class="btn blue">Add LLM Response</button>
+    <span class="spacer"></span>
+    <button id="export-btn" class="btn">Export</button>
+    <button id="import-btn" class="btn">Import</button>
+    <input id="import-file" type="file" accept="application/json" hidden />
+  </div>
+
+  <div id="viewport">
+    <div id="canvas"></div>
+    <div id="minimap"></div>
+  </div>
+
+  <div id="chat-bar">
+    <textarea id="chat-input" placeholder="Type your message here..."></textarea>
+    <button id="send-btn">Send</button>
+  </div>
+
+  <div id="context-menu" hidden>
+    <div class="menu-item" data-action="replicate">Replicate Node</div>
+    <div class="menu-item" data-action="connect">Create Connected Node</div>
+    <div class="menu-item" data-action="delete">Delete Node</div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

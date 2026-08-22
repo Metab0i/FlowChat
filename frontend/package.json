@@ -1,0 +1,13 @@
+{
+  "name": "flowchat-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "FlowChat frontend — vanilla JS + jsPlumb Community Edition",
+  "dependencies": {
+    "@highlightjs/cdn-assets": "^11.12.0",
+    "@jsplumb/browser-ui": "^6.2.10",
+    "dompurify": "^3.1.6",
+    "marked": "^12.0.2"
+  }
+}

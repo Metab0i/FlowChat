@@ -1,0 +1,20 @@
+# Nix
+result
+result-*
+.direnv/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Env / secrets
+.env
+.env.*.local
+
+# Node
+node_modules/
+
+# Editors / OS
+.DS_Store
+*.swp
