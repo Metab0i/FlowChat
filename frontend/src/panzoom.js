@@ -11,9 +11,14 @@ export function createPanZoom({ canvas, viewport, instance, onTransform }) {
     if (onTransform) onTransform({ zoom, panX, panY });
   }
 
+  function isPanModifier(e) {
+    return e.ctrlKey || e.metaKey;
+  }
+
   viewport.addEventListener(
     "wheel",
     (e) => {
+      if (!isPanModifier(e)) return;
       e.preventDefault();
       const rect = viewport.getBoundingClientRect();
       const mx = e.clientX - rect.left;
@@ -36,14 +41,14 @@ export function createPanZoom({ canvas, viewport, instance, onTransform }) {
   let origPanY = 0;
 
   viewport.addEventListener("mousedown", (e) => {
-    if (e.target === canvas || e.target === viewport) {
-      panning = true;
-      startX = e.clientX;
-      startY = e.clientY;
-      origPanX = panX;
-      origPanY = panY;
-      viewport.classList.add("panning");
-    }
+    if (!isPanModifier(e)) return;
+    if (e.target.closest && e.target.closest("input, select, textarea, button, a")) return;
+    panning = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    origPanX = panX;
+    origPanY = panY;
+    viewport.classList.add("panning");
   });
 
   window.addEventListener("mousemove", (e) => {
@@ -57,6 +62,28 @@ export function createPanZoom({ canvas, viewport, instance, onTransform }) {
     panning = false;
     viewport.classList.remove("panning");
   });
+
+  function enterPanMode() {
+    viewport.classList.add("pan-mode");
+    instance.elementsDraggable = false;
+  }
+
+  function exitPanMode() {
+    viewport.classList.remove("pan-mode");
+    viewport.classList.remove("panning");
+    panning = false;
+    instance.elementsDraggable = true;
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey) enterPanMode();
+  });
+
+  window.addEventListener("keyup", (e) => {
+    if (!e.ctrlKey && !e.metaKey) exitPanMode();
+  });
+
+  window.addEventListener("blur", () => exitPanMode());
 
   apply();
 

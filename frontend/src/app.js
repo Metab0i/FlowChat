@@ -13,7 +13,7 @@ const state = {
   edges: new Map(), // id -> { id, source, target, conn }
   models: [],
   defaultModel: "",
-  selectedId: null,
+  selectedIds: new Set(),
   contextNodeId: null,
 };
 
@@ -170,7 +170,10 @@ function createNodeElement(node) {
     });
   }
 
-  el.addEventListener("click", () => selectNode(node.id));
+  el.addEventListener("click", (e) => {
+    if (e.shiftKey) toggleSelectNode(node.id);
+    else selectNode(node.id);
+  });
   el.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -302,24 +305,107 @@ function deleteNode(id) {
 
   instance.unmanage(node.el, true);
   state.nodes.delete(id);
-  if (state.selectedId === id) state.selectedId = null;
+  state.selectedIds.delete(id);
   if (state.contextNodeId === id) state.contextNodeId = null;
   drawMinimap();
 }
 
-function selectNode(id) {
-  state.selectedId = id || null;
+function refreshSelection() {
   for (const n of state.nodes.values()) {
-    n.el.classList.toggle("selected", n.id === id);
+    n.el.classList.toggle("selected", state.selectedIds.has(n.id));
   }
 }
 
-function deselectAll() {
-  selectNode(null);
+function selectNode(id) {
+  state.selectedIds = new Set([id]);
+  refreshSelection();
 }
 
-canvas.addEventListener("click", (e) => {
-  if (e.target === canvas) deselectAll();
+function toggleSelectNode(id) {
+  if (state.selectedIds.has(id)) state.selectedIds.delete(id);
+  else state.selectedIds.add(id);
+  refreshSelection();
+}
+
+function setSelection(ids) {
+  state.selectedIds = new Set(ids);
+  refreshSelection();
+}
+
+function addToSelection(ids) {
+  for (const id of ids) state.selectedIds.add(id);
+  refreshSelection();
+}
+
+function deselectAll() {
+  state.selectedIds = new Set();
+  refreshSelection();
+}
+
+/* ---------- rubber-band selection ---------- */
+
+const selectionRect = document.getElementById("selection-rect");
+
+function rectsIntersect(a, b) {
+  return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+}
+
+let selectDrag = null;
+
+viewport.addEventListener("mousedown", (e) => {
+  if (e.ctrlKey || e.metaKey) return;
+  if (e.button !== 0) return;
+  if (e.target !== canvas && e.target !== viewport) return;
+
+  selectDrag = {
+    startX: e.clientX,
+    startY: e.clientY,
+    moved: false,
+  };
+  if (!e.shiftKey) deselectAll();
+
+  const vr = viewport.getBoundingClientRect();
+  selectionRect.style.display = "block";
+  selectionRect.style.left = `${e.clientX - vr.left}px`;
+  selectionRect.style.top = `${e.clientY - vr.top}px`;
+  selectionRect.style.width = "0px";
+  selectionRect.style.height = "0px";
+});
+
+window.addEventListener("mousemove", (e) => {
+  if (!selectDrag) return;
+  const dx = e.clientX - selectDrag.startX;
+  const dy = e.clientY - selectDrag.startY;
+  if (Math.abs(dx) > 2 || Math.abs(dy) > 2) selectDrag.moved = true;
+
+  const vr = viewport.getBoundingClientRect();
+  const left = Math.min(e.clientX, selectDrag.startX) - vr.left;
+  const top = Math.min(e.clientY, selectDrag.startY) - vr.top;
+  selectionRect.style.left = `${left}px`;
+  selectionRect.style.top = `${top}px`;
+  selectionRect.style.width = `${Math.abs(dx)}px`;
+  selectionRect.style.height = `${Math.abs(dy)}px`;
+});
+
+window.addEventListener("mouseup", (e) => {
+  if (!selectDrag) return;
+  const wasDrag = selectDrag.moved;
+  const rect = {
+    left: Math.min(selectDrag.startX, e.clientX),
+    top: Math.min(selectDrag.startY, e.clientY),
+    right: Math.max(selectDrag.startX, e.clientX),
+    bottom: Math.max(selectDrag.startY, e.clientY),
+  };
+  selectDrag = null;
+  selectionRect.style.display = "none";
+  if (!wasDrag) return;
+
+  const ids = [];
+  for (const n of state.nodes.values()) {
+    if (rectsIntersect(rect, n.el.getBoundingClientRect())) ids.push(n.id);
+  }
+  if (e.shiftKey) addToSelection(ids);
+  else setSelection(ids);
 });
 
 function replicateNode(id) {
@@ -407,18 +493,31 @@ async function generateResponse(llmNodeId) {
 async function sendMessage(text) {
   if (!text.trim()) return;
 
-  const sourceNode = state.selectedId ? state.nodes.get(state.selectedId) : null;
+  const selected = [...state.selectedIds]
+    .map((id) => state.nodes.get(id))
+    .filter(Boolean);
 
-  const pos = sourceNode ? getNodePosition(sourceNode) : null;
+  if (selected.length === 0) {
+    const userNode = addNode("userInput", { text });
+    const userPos = getNodePosition(userNode);
+    const llmNode = addNode("llm", {
+      position: { x: userPos.x, y: userPos.y + (userNode.el.offsetHeight || 100) + 60 },
+    });
+    connectNodes(userNode.id, llmNode.id);
+    selectNode(llmNode.id);
+    await generateResponse(llmNode.id);
+    return;
+  }
+
+  const first = selected[0];
+  const pos = getNodePosition(first);
   const userNode = addNode("userInput", {
     text,
-    position: pos
-      ? { x: pos.x, y: pos.y + (sourceNode.el.offsetHeight || 100) + 60 }
-      : undefined,
+    position: { x: pos.x, y: pos.y + (first.el.offsetHeight || 100) + 60 },
   });
 
-  if (sourceNode) {
-    connectNodes(sourceNode.id, userNode.id);
+  for (const src of selected) {
+    connectNodes(src.id, userNode.id);
   }
 
   const userPos = getNodePosition(userNode);
@@ -471,9 +570,9 @@ window.addEventListener("keydown", (e) => {
   const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
   if (typing) return;
 
-  if ((e.key === "Delete" || e.key === "Backspace") && state.selectedId) {
+  if ((e.key === "Delete" || e.key === "Backspace") && state.selectedIds.size) {
     e.preventDefault();
-    deleteNode(state.selectedId);
+    for (const id of [...state.selectedIds]) deleteNode(id);
   }
 });
 
@@ -506,7 +605,7 @@ function clearAll() {
   }
   state.nodes.clear();
   state.edges.clear();
-  state.selectedId = null;
+  state.selectedIds = new Set();
 }
 
 function deserialize(data) {
