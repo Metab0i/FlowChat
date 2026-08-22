@@ -21,9 +21,9 @@ export function createPanZoom({ canvas, viewport, instance, onTransform }) {
   viewport.addEventListener(
     "wheel",
     (e) => {
-      if (e.target && e.target.closest && e.target.closest("pre, textarea")) return;
-      e.preventDefault();
+      const inText = e.target && e.target.closest && e.target.closest(".node-body, textarea");
       if (isPanModifier(e)) {
+        e.preventDefault();
         const rect = viewport.getBoundingClientRect();
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
@@ -32,12 +32,19 @@ export function createPanZoom({ canvas, viewport, instance, onTransform }) {
         panX = mx - ((mx - panX) / zoom) * newZoom;
         panY = my - ((my - panY) / zoom) * newZoom;
         zoom = newZoom;
-      } else if (e.shiftKey) {
-        panX -= e.deltaY || e.deltaX;
-      } else {
-        panY -= e.deltaY;
-        panX -= e.deltaX;
+        apply();
+        return;
       }
+      if (e.shiftKey) {
+        e.preventDefault();
+        panX -= e.deltaY || e.deltaX;
+        apply();
+        return;
+      }
+      if (inText) return;
+      e.preventDefault();
+      panY -= e.deltaY;
+      panX -= e.deltaX;
       apply();
     },
     { passive: false }
