@@ -108,7 +108,7 @@ function renderNodeBody(node) {
   if (!body) return;
   if (node.type === "llm") {
     if (node.loading && !node.text) {
-      body.innerHTML = loadingPlaceholder();
+      body.replaceChildren(loadingPlaceholder());
     } else {
       renderMarkdownInto(body, node.text || "");
     }
@@ -118,12 +118,24 @@ function renderNodeBody(node) {
   body.classList.toggle("folded", !!node.folded && !node.loading);
 
   const footer = node.el.querySelector(".node-footer");
-  if (footer) footer.hidden = body.scrollHeight <= body.clientHeight + 1;
+  if (footer) {
+    if (body.scrollHeight <= body.clientHeight + 1) footer.setAttribute("hidden", "");
+    else footer.removeAttribute("hidden");
+  }
 }
 
 function loadingPlaceholder() {
   const words = [8, 2, 5, 3, 9, 4, 6.2, 3, 5, 1];
-  return `<div class="placeholder-glow" aria-hidden="true">${words.map((w) => `<span class="placeholder placeholder-word" style="width:${w}em"></span>`).join(" ")}</div>`;
+  const glow = document.createElement("div");
+  glow.classList.add("placeholder-glow");
+  glow.setAttribute("aria-hidden", "true");
+  for (const w of words) {
+    const word = document.createElement("span");
+    word.classList.add("placeholder", "placeholder-word");
+    word.style.width = `${w}em`;
+    glow.appendChild(word);
+  }
+  return glow;
 }
 
 function renderNodeTitle(node) {
@@ -139,38 +151,87 @@ function defaultNodeTitle(node) {
 function createNodeElement(node) {
   const el = document.createElement("div");
   node.el = el;
-  el.className = `flow-node card ${node.type === "userInput" ? "border-success bg-success-subtle" : "border-primary bg-primary-subtle"}`;
+  el.classList.add("flow-node", "card");
+  if (node.type === "userInput") {
+    el.classList.add("border-success", "bg-success-subtle");
+  } else {
+    el.classList.add("border-primary", "bg-primary-subtle");
+  }
   el.dataset.id = node.id;
 
-  const title = defaultNodeTitle(node);
-  const regen = node.type === "userInput"
-    ? '<button class="btn btn-sm btn-outline-secondary regenerate" title="Regenerate">🗘</button>'
-    : "";
-  const spinner = node.type === "llm"
-    ? '<span class="spinner-border spinner-border-sm text-primary node-spinner" role="status" hidden></span>'
-    : "";
-  const modelSelect = node.type === "llm"
-    ? '<div class="px-2 pt-2"><select class="model-select form-select form-select-sm" data-jtk-not-draggable></select></div>'
-    : "";
+  const header = document.createElement("div");
+  header.classList.add("card-header", "node-header", "py-1", "px-2");
+  el.appendChild(header);
 
-  el.innerHTML = `
-    <div class="card-header node-header py-1 px-2">
-      <span class="node-title"></span>
-      <span class="node-actions">
-        ${regen}
-        ${spinner}
-        <button class="btn btn-sm btn-outline-secondary fold" title="Fold">▾</button>
-        <button class="btn btn-sm btn-outline-secondary delete" title="Delete">✕</button>
-      </span>
-    </div>
-    ${modelSelect}
-    <div class="card-body node-body p-2"></div>
-    <div class="node-footer" hidden>
-      <button class="btn btn-sm btn-link p-1 node-expand" title="Expand">...</button>
-    </div>
-    <div class="handle target" data-node-id="${node.id}"></div>
-    <div class="handle source" data-node-id="${node.id}"></div>
-  `;
+  const title = document.createElement("span");
+  title.classList.add("node-title");
+  header.appendChild(title);
+
+  const actions = document.createElement("span");
+  actions.classList.add("node-actions");
+  header.appendChild(actions);
+
+  if (node.type === "userInput") {
+    const regen = document.createElement("button");
+    regen.classList.add("btn", "btn-sm", "btn-outline-secondary", "regenerate");
+    regen.setAttribute("title", "Regenerate");
+    regen.textContent = "🗘";
+    actions.appendChild(regen);
+  }
+
+  if (node.type === "llm") {
+    const spinner = document.createElement("span");
+    spinner.classList.add("spinner-border", "spinner-border-sm", "text-primary", "node-spinner");
+    spinner.setAttribute("role", "status");
+    spinner.setAttribute("hidden", "");
+    actions.appendChild(spinner);
+  }
+
+  const fold = document.createElement("button");
+  fold.classList.add("btn", "btn-sm", "btn-outline-secondary", "fold");
+  fold.setAttribute("title", "Fold");
+  fold.textContent = "▾";
+  actions.appendChild(fold);
+
+  const del = document.createElement("button");
+  del.classList.add("btn", "btn-sm", "btn-outline-secondary", "delete");
+  del.setAttribute("title", "Delete");
+  del.textContent = "✕";
+  actions.appendChild(del);
+
+  if (node.type === "llm") {
+    const modelWrap = document.createElement("div");
+    modelWrap.classList.add("px-2", "pt-2");
+    const select = document.createElement("select");
+    select.classList.add("model-select", "form-select", "form-select-sm");
+    select.setAttribute("data-jtk-not-draggable", "true");
+    modelWrap.appendChild(select);
+    el.appendChild(modelWrap);
+  }
+
+  const body = document.createElement("div");
+  body.classList.add("card-body", "node-body", "p-2");
+  el.appendChild(body);
+
+  const footer = document.createElement("div");
+  footer.classList.add("node-footer");
+  footer.setAttribute("hidden", "");
+  const expand = document.createElement("button");
+  expand.classList.add("btn", "btn-sm", "btn-link", "p-1", "node-expand");
+  expand.setAttribute("title", "Expand");
+  expand.textContent = "...";
+  footer.appendChild(expand);
+  el.appendChild(footer);
+
+  const targetHandle = document.createElement("div");
+  targetHandle.classList.add("handle", "target");
+  targetHandle.dataset.nodeId = node.id;
+  el.appendChild(targetHandle);
+
+  const sourceHandle = document.createElement("div");
+  sourceHandle.classList.add("handle", "source");
+  sourceHandle.dataset.nodeId = node.id;
+  el.appendChild(sourceHandle);
 
   renderNodeTitle(node);
 
@@ -216,8 +277,7 @@ function createNodeElement(node) {
   });
 
   if (node.type === "userInput") {
-    const body = el.querySelector(".node-body");
-    body.addEventListener("dblclick", () => beginEdit(node));
+    el.querySelector(".node-body").addEventListener("dblclick", () => beginEdit(node));
   }
 
   renderNodeBody(node);
@@ -225,7 +285,7 @@ function createNodeElement(node) {
 }
 
 function populateModelSelect(select, value) {
-  select.innerHTML = "";
+  select.replaceChildren();
   if (state.models.length === 0) {
     const opt = document.createElement("option");
     opt.value = "";
@@ -253,7 +313,7 @@ function beginEdit(node) {
   const body = node.el.querySelector(".node-body");
   if (!body) return;
   const ta = document.createElement("textarea");
-  ta.className = "node-editor";
+  ta.classList.add("node-editor");
   ta.value = node.text || "";
   ta.setAttribute("data-jtk-not-draggable", "true");
   body.replaceWith(ta);
@@ -268,7 +328,7 @@ function finishEdit(node) {
   node.text = ta.value;
 
   const body = document.createElement("div");
-  body.className = "node-body";
+  body.classList.add("node-body");
   body.addEventListener("dblclick", () => beginEdit(node));
   ta.replaceWith(body);
   node._editor = null;
@@ -539,7 +599,9 @@ async function generateResponse(llmNodeId) {
 
 function updateSpinner(node) {
   const spinner = node.el.querySelector(".node-spinner");
-  if (spinner) spinner.hidden = !node.loading;
+  if (!spinner) return;
+  if (node.loading) spinner.removeAttribute("hidden");
+  else spinner.setAttribute("hidden", "");
 }
 
 function deriveTitle(text) {
@@ -613,13 +675,13 @@ const contextMenu = document.getElementById("context-menu");
 
 function showContextMenu(nodeId, x, y) {
   state.contextNodeId = nodeId;
-  contextMenu.hidden = false;
+  contextMenu.removeAttribute("hidden");
   contextMenu.style.left = `${x}px`;
   contextMenu.style.top = `${y}px`;
 }
 
 function hideContextMenu() {
-  contextMenu.hidden = true;
+  contextMenu.setAttribute("hidden", "");
   state.contextNodeId = null;
 }
 
@@ -635,7 +697,7 @@ contextMenu.addEventListener("click", (e) => {
 });
 
 window.addEventListener("mousedown", (e) => {
-  if (!contextMenu.hidden && !contextMenu.contains(e.target)) {
+  if (!contextMenu.hasAttribute("hidden") && !contextMenu.contains(e.target)) {
     hideContextMenu();
   }
 });
