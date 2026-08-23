@@ -206,8 +206,15 @@ function findEdge(sourceId, targetId) {
   return null;
 }
 
+function isConnected(a, b) {
+  for (const e of state.edges.values()) {
+    if ((e.source === a && e.target === b) || (e.source === b && e.target === a)) return true;
+  }
+  return false;
+}
+
 function selectionIsActive(sel) {
-  return sel.branches.some((branchId) => findEdge(sel.nodeId, branchId));
+  return sel.branches.some((branchId) => isConnected(sel.nodeId, branchId));
 }
 
 function applySelections(node, rootEl, getZoom = () => panzoom.getZoom()) {
