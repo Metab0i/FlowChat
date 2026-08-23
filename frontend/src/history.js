@@ -39,31 +39,30 @@ export function findAllPrecedents(nodeId, nodes, edges) {
 }
 
 export function getConversationHistory(node, nodes, edges) {
-  const history = [];
+  const included = new Set();
+  const order = [];
 
-  function process(currentNode) {
-    if (!currentNode) return;
+  function visit(currentNode) {
+    if (!currentNode || included.has(currentNode.id)) return;
+    included.add(currentNode.id);
 
-    const incomers = getIncomers(currentNode.id, nodes, edges);
-    const entry = {
-      id: currentNode.id,
-      role: currentNode.type === "userInput" ? "user" : "assistant",
-      parent: [...incomers],
-      content: currentNode.text || "",
-      children: [],
-    };
-
-    if (node.id !== currentNode.id) {
-      entry.children = getOutgoers(currentNode.id, nodes, edges);
+    for (const inc of getIncomers(currentNode.id, nodes, edges)) {
+      visit(nodes.get(inc));
     }
 
-    history.unshift(entry);
-
-    for (const inc of incomers) {
-      process(nodes.get(inc));
-    }
+    order.push(currentNode);
   }
 
-  process(node);
-  return history;
+  visit(node);
+
+  return order.map((n) => ({
+    id: n.id,
+    role: n.type === "userInput" ? "user" : "assistant",
+    parent: getIncomers(n.id, nodes, edges).filter((id) => included.has(id)),
+    content: n.text || "",
+    children:
+      n.id === node.id
+        ? []
+        : getOutgoers(n.id, nodes, edges).filter((id) => included.has(id)),
+  }));
 }

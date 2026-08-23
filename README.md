@@ -16,7 +16,8 @@ single thread.
 | Conversation nodes | User inputs and LLM responses are cards on a canvas | Type in the chat bar and click **Send** |
 | Streaming responses | Responses render as Markdown with syntax highlighting, streamed live | Send a message; the reply streams into its node |
 | Edit node text | Change a user-input message inline | Double-click the body of a user-input node |
-| Regenerate (cascade) | Re-run an LLM response and everything downstream | Click the 🗘 button on a user-input node |
+| Refresh response | Re-run a single LLM response using its upstream context | Click 🗘 on an LLM node's header (confirms first if it has highlights) |
+| Generate response | Create and generate an LLM reply for a user-input that has none | Click 🗘 on a user-input node with no outgoing LLM |
 | Model selection | Global default model plus a per-node override | Toolbar dropdown for the default; each node has its own dropdown |
 
 ### Node management
