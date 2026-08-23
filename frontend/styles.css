@@ -40,6 +40,8 @@ body { display: flex; flex-direction: column; }
   line-height: 1.6;
   word-break: break-word;
   position: relative;
+  background: var(--bs-body-bg);
+  isolation: isolate;
 }
 #inspector-content pre {
   background: var(--bs-tertiary-bg);
@@ -171,6 +173,8 @@ body { display: flex; flex-direction: column; }
   min-height: 0;
   overflow: auto;
   position: relative;
+  background: var(--bs-body-bg);
+  isolation: isolate;
 }
 .node-body.folded { max-height: 8em; overflow-y: auto; overflow-x: hidden; }
 
@@ -210,11 +214,29 @@ body { display: flex; flex-direction: column; }
   pointer-events: auto;
   cursor: pointer;
   border-radius: 3px;
-  background: rgba(255, 235, 59, 0.35);
+  background: #ffff00;
+  mix-blend-mode: multiply;
 }
 .flow-selection:hover,
 .flow-selection-hover {
-  background: rgba(255, 213, 0, 0.45);
+  background: #e6e600;
+}
+body.is-selecting .flow-selection {
+  pointer-events: none;
+}
+body.is-selecting .flow-selection:hover,
+body.is-selecting .flow-selection-hover {
+  background: #ffff00;
+}
+
+/* Restrict text selection to node bodies / inspector only */
+#toolbar,
+#chat-bar,
+#minimap,
+#inspector-header,
+#inspector-resizer,
+#context-menu {
+  user-select: none;
 }
 
 .node-editor {

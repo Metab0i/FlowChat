@@ -4,7 +4,7 @@ import { getOutgoers, findAllDescendants, getConversationHistory } from "./histo
 import { renderMarkdownInto } from "./markdown.js";
 import { createPanZoom } from "./panzoom.js";
 import { makeResizable } from "./resize.js";
-import { applySelectionOverlays, clearSelectionOverlays, rangeToOffsets } from "./selection.js";
+import { applySelectionOverlays, clearSelectionOverlays, rangeToOffsets, textNodes } from "./selection.js";
 
 const canvas = document.getElementById("canvas");
 const viewport = document.getElementById("viewport");
@@ -264,33 +264,34 @@ function setSelectionHover(selectionId, on) {
   }
 }
 
+function mergeSelectionInto(list, sel) {
+  const node = state.nodes.get(sel.nodeId);
+  const body = node && node.el.querySelector(".node-body");
+  const full = body ? body.textContent || "" : "";
+
+  const merged = [];
+  for (const s of [...list, sel].sort((a, b) => a.start - b.start || a.end - b.end)) {
+    const last = merged[merged.length - 1];
+    if (last && s.start <= last.end) {
+      last.end = Math.max(last.end, s.end);
+      for (const b of s.branches) {
+        if (!last.branches.includes(b)) last.branches.push(b);
+      }
+    } else {
+      merged.push({ ...s, branches: [...s.branches] });
+    }
+  }
+  for (const m of merged) m.text = full.slice(m.start, m.end);
+  return merged;
+}
+
 function recordSelection(pending, branchNodeId) {
-  const { nodeId, start, end, text } = pending;
+  const { nodeId, start, end } = pending;
   const list = state.selections.get(nodeId) || [];
-
-  let merged = null;
-  for (const s of list) {
-    if (s.start <= end && start <= s.end) {
-      merged = s;
-      break;
-    }
-  }
-
-  if (merged) {
-    merged.start = Math.min(merged.start, start);
-    merged.end = Math.max(merged.end, end);
-    const node = state.nodes.get(nodeId);
-    const body = node && node.el.querySelector(".node-body");
-    if (body) {
-      const full = body.textContent || "";
-      merged.text = full.slice(merged.start, merged.end);
-    }
-    if (!merged.branches.includes(branchNodeId)) merged.branches.push(branchNodeId);
-  } else {
-    list.push({ id: uid("s"), nodeId, start, end, text, branches: [branchNodeId] });
-  }
-
-  state.selections.set(nodeId, list);
+  state.selections.set(
+    nodeId,
+    mergeSelectionInto(list, { id: uid("s"), nodeId, start, end, branches: [branchNodeId] })
+  );
   clearPendingSelection();
   refreshSelectionsForNode(nodeId);
 }
@@ -349,22 +350,135 @@ quoteChipClear.addEventListener("click", (e) => {
   clearPendingSelection();
 });
 
-document.addEventListener("selectionchange", () => {
-  const sel = window.getSelection();
-  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+/* ---------- selection clamp (restrict to source node) ---------- */
+
+let lastMouseX = 0;
+let lastMouseY = 0;
+let isClamping = false;
+
+window.addEventListener("mousemove", (e) => {
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+});
+
+function rootForNode(n) {
+  const el = n && n.nodeType === Node.TEXT_NODE ? n.parentElement : n;
+  return el && el.closest ? el.closest(".node-body, #inspector-content") : null;
+}
+
+function clampSelectionToRoot(sel, root) {
   const range = sel.getRangeAt(0);
+  const anchorIsStart = sel.anchorNode === range.startContainer && sel.anchorOffset === range.startOffset;
+
+  const rect = root.getBoundingClientRect();
+  const x = Math.min(Math.max(lastMouseX, rect.left), rect.right - 1);
+  const y = Math.min(Math.max(lastMouseY, rect.top), rect.bottom - 1);
+
+  let caret = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
+  if (!caret || !root.contains(caret.startContainer)) {
+    const nodes = textNodes(root);
+    if (!nodes.length) return;
+    caret = document.createRange();
+    if (anchorIsStart) {
+      const last = nodes[nodes.length - 1];
+      caret.setStart(last, last.data.length);
+    } else {
+      caret.setStart(nodes[0], 0);
+    }
+    caret.collapse(true);
+  }
+
+  const newRange = document.createRange();
+  if (anchorIsStart) {
+    newRange.setStart(sel.anchorNode, sel.anchorOffset);
+    newRange.setEnd(caret.startContainer, caret.startOffset);
+  } else {
+    newRange.setStart(caret.startContainer, caret.startOffset);
+    newRange.setEnd(sel.anchorNode, sel.anchorOffset);
+  }
+
+  isClamping = true;
+  sel.removeAllRanges();
+  sel.addRange(newRange);
+  isClamping = false;
+}
+
+/* ---------- blocked (already-highlighted) selection ---------- */
+
+let blockedSelection = false;
+
+function mergedIntervals(selections) {
+  const intervals = selections
+    .map((s) => ({ start: Math.min(s.start, s.end), end: Math.max(s.start, s.end) }))
+    .filter((s) => s.start < s.end)
+    .sort((a, b) => a.start - b.start);
+  const merged = [];
+  for (const s of intervals) {
+    const last = merged[merged.length - 1];
+    if (last && s.start <= last.end) last.end = Math.max(last.end, s.end);
+    else merged.push({ ...s });
+  }
+  return merged;
+}
+
+function selectionCovered(nodeId, start, end) {
+  const active = (state.selections.get(nodeId) || []).filter(selectionIsActive);
+  return mergedIntervals(active).some((iv) => start >= iv.start && end <= iv.end);
+}
+
+function setBlockedSelection() {
+  if (state.pendingSelection) {
+    state.pendingSelection = null;
+    renderPendingChip();
+  }
+  if (!blockedSelection) {
+    blockedSelection = true;
+    showToast("This section is already quoted");
+  }
+  sendBtn.disabled = true;
+}
+
+function clearBlockedSelection() {
+  if (!blockedSelection) return;
+  blockedSelection = false;
+  sendBtn.disabled = false;
+}
+
+document.addEventListener("selectionchange", () => {
+  if (isClamping) return;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  if (sel.isCollapsed) {
+    clearBlockedSelection();
+    return;
+  }
+  const range = sel.getRangeAt(0);
+  const anchorRoot = rootForNode(sel.anchorNode);
+  if (anchorRoot && !anchorRoot.contains(sel.focusNode)) {
+    clampSelectionToRoot(sel, anchorRoot);
+    return;
+  }
   const c = containerForSelection(range);
-  if (!c) return;
+  if (!c) {
+    clearBlockedSelection();
+    return;
+  }
   const { start, end, text } = rangeToOffsets(c.root, range);
   if (start >= end) return;
-  setPendingSelection({ nodeId: c.nodeId, start, end, text });
+  if (selectionCovered(c.nodeId, start, end)) {
+    setBlockedSelection();
+  } else {
+    clearBlockedSelection();
+    setPendingSelection({ nodeId: c.nodeId, start, end, text });
+  }
 });
 
 document.addEventListener("mousedown", (e) => {
-  if (!state.pendingSelection) return;
+  if (!state.pendingSelection && !blockedSelection) return;
   if (e.target.closest && e.target.closest("#chat-bar")) return;
   if (e.target.closest && e.target.closest(".flow-selection")) return;
   clearPendingSelection();
+  clearBlockedSelection();
 });
 
 window.addEventListener("keydown", (e) => {
@@ -380,20 +494,53 @@ window.addEventListener("keydown", (e) => {
   input.setSelectionRange(input.value.length, input.value.length);
 });
 
+let isTextSelecting = false;
+let hoveredSelectionId = null;
+
+function beginTextSelecting() {
+  if (isTextSelecting) return;
+  isTextSelecting = true;
+  document.body.classList.add("is-selecting");
+  if (hoveredSelectionId) {
+    setSelectionHover(hoveredSelectionId, false);
+    setChainHighlight(hoveredSelectionId, false);
+    hoveredSelectionId = null;
+  }
+}
+
+function endTextSelecting() {
+  if (!isTextSelecting) return;
+  isTextSelecting = false;
+  document.body.classList.remove("is-selecting");
+}
+
+document.addEventListener("mousedown", (e) => {
+  if (e.button !== 0) return;
+  if (e.target.closest && e.target.closest(".flow-selection")) return;
+  if (e.target.closest && e.target.closest(".node-body, #inspector-content")) beginTextSelecting();
+});
+
+window.addEventListener("mouseup", endTextSelecting);
+window.addEventListener("blur", endTextSelecting);
+
 document.addEventListener("mouseover", (e) => {
+  if (isTextSelecting) return;
   const mark = e.target.closest && e.target.closest(".flow-selection");
   if (!mark || !mark.dataset.selectionId) return;
-  setSelectionHover(mark.dataset.selectionId, true);
-  setChainHighlight(mark.dataset.selectionId, true);
+  hoveredSelectionId = mark.dataset.selectionId;
+  setSelectionHover(hoveredSelectionId, true);
+  setChainHighlight(hoveredSelectionId, true);
 });
 
 document.addEventListener("mouseout", (e) => {
+  if (isTextSelecting) return;
   const mark = e.target.closest && e.target.closest(".flow-selection");
   if (!mark || !mark.dataset.selectionId) return;
   const related = e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest(".flow-selection");
   if (related && related.dataset.selectionId === mark.dataset.selectionId) return;
   setSelectionHover(mark.dataset.selectionId, false);
   setChainHighlight(mark.dataset.selectionId, false);
+  if (hoveredSelectionId === mark.dataset.selectionId) hoveredSelectionId = null;
 });
 
 /* ---------- inspector panel ---------- */
@@ -1030,6 +1177,10 @@ function buildMessageWithSelection(text, pending) {
 async function sendMessage(text) {
   const pending = state.pendingSelection;
   if (!text.trim() && !pending) return;
+  if (blockedSelection) {
+    showToast("This section is already quoted");
+    return;
+  }
 
   const sourceIds = new Set(state.selectedIds);
   if (pending && state.nodes.has(pending.nodeId)) sourceIds.add(pending.nodeId);
@@ -1206,15 +1357,16 @@ function deserialize(data) {
     const branches = (raw.branches || []).map((b) => idMap[b]).filter(Boolean);
     if (!branches.length) continue;
     const list = state.selections.get(nodeId) || [];
-    list.push({
-      id: uid("s"),
+    state.selections.set(
       nodeId,
-      start: raw.start ?? 0,
-      end: raw.end ?? 0,
-      text: raw.text || "",
-      branches,
-    });
-    state.selections.set(nodeId, list);
+      mergeSelectionInto(list, {
+        id: uid("s"),
+        nodeId,
+        start: raw.start ?? 0,
+        end: raw.end ?? 0,
+        branches,
+      })
+    );
   }
 
   for (const node of state.nodes.values()) {
@@ -1229,6 +1381,15 @@ function deserialize(data) {
 const defaultModelSelect = document.getElementById("default-model-select");
 const chatInput = document.getElementById("chat-input");
 const sendBtn = document.getElementById("send-btn");
+
+const toastEl = document.getElementById("flowchat-toast");
+const toastBody = document.getElementById("flowchat-toast-body");
+
+function showToast(message) {
+  if (!toastEl || !toastBody) return;
+  toastBody.textContent = message;
+  bootstrap.Toast.getOrCreateInstance(toastEl).show();
+}
 
 function refreshDefaultModelSelect() {
   populateModelSelect(defaultModelSelect, state.defaultModel);
