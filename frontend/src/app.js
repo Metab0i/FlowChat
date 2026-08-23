@@ -1,5 +1,5 @@
 import { newInstance } from "@jsplumb/browser-ui";
-import { detectKey, fetchDefaultPrompt, fetchTitle, streamGenerate } from "./api.js";
+import { detectKey, fetchDefaultPrompt, fetchDefaultPersonality, fetchTitle, streamGenerate } from "./api.js";
 import { getOutgoers, findAllDescendants, getConversationHistory } from "./history.js";
 import { renderMarkdownInto } from "./markdown.js";
 import { createPanZoom } from "./panzoom.js";
@@ -14,6 +14,9 @@ import {
   saveActivePromptId,
   loadDefaultModel,
   saveDefaultModel,
+  loadPromptsVersion,
+  savePromptsVersion,
+  PROMPTS_VERSION,
   BUILTIN_PROMPT_ID,
   adjectiveAnimalId,
   uniquePromptName,
@@ -46,6 +49,7 @@ const promptTextInput = document.getElementById("prompt-text-input");
 const savePromptBtn = document.getElementById("save-prompt-btn");
 const deletePromptBtn = document.getElementById("delete-prompt-btn");
 const newPromptBtn = document.getElementById("new-prompt-btn");
+const basePromptText = document.getElementById("base-prompt-text");
 const keyOverlay = document.getElementById("key-overlay");
 const overlayKeyForm = document.getElementById("overlay-key-form");
 const overlayKeyInput = document.getElementById("overlay-key-input");
@@ -65,7 +69,8 @@ const state = {
   providers: [],
   prompts: [],
   activePromptId: null,
-  defaultPromptText: "",
+  rootPromptText: "",
+  defaultPersonalityText: "",
   selectedIds: new Set(),
   contextNodeId: null,
   inspectorNodeId: null,
@@ -189,7 +194,7 @@ function renderNodeBody(node) {
 function syncFold(node) {
   const body = node.el.querySelector(".node-body");
   if (!body) return;
-  body.classList.toggle("folded", !!node.folded && !node.loading && !node.h);
+  body.classList.toggle("folded", !!node.folded && !node.h);
 
   const fold = node.el.querySelector(".fold");
   if (fold) {
@@ -1263,10 +1268,10 @@ async function generateTitle(llmNode) {
 
   let better = "";
   try {
-    better = await fetchTitle(apiKey, llmNode.model, llmNode.text, 15000);
+    better = await fetchTitle(apiKey, llmNode.model, llmNode.text, 30000);
     console.log("[FC-title]", llmNode.id, "model=", llmNode.model, "title=", JSON.stringify(better));
   } catch (err) {
-    console.warn("[FC-title] fetchTitle failed, keeping fallback:", err?.message || err);
+    console.debug("[FC-title] fetchTitle failed, keeping fallback:", err?.message || err);
   }
   if (better && better !== llmNode.title) {
     llmNode.title = better;
@@ -1979,7 +1984,7 @@ function renderPrompts() {
 }
 
 function renderPromptEditor(p) {
-  if (!p || p.builtin) {
+  if (!p) {
     promptEditor.setAttribute("hidden", "");
     return;
   }
@@ -1987,6 +1992,7 @@ function renderPromptEditor(p) {
   promptNameInput.value = p.name || "";
   promptTextInput.value = p.text || "";
   promptEditor.dataset.promptId = p.id;
+  deletePromptBtn.hidden = !!p.builtin;
 }
 
 function toggleSettings(force) {
@@ -2024,7 +2030,7 @@ promptSelect.addEventListener("change", () => {
 newPromptBtn.addEventListener("click", () => {
   const p = {
     id: uid("p"),
-    name: uniquePromptName("New prompt", state.prompts),
+    name: uniquePromptName("New personality", state.prompts),
     text: "",
     builtin: false,
   };
@@ -2038,7 +2044,7 @@ newPromptBtn.addEventListener("click", () => {
 savePromptBtn.addEventListener("click", () => {
   const id = promptEditor.dataset.promptId;
   const p = state.prompts.find((x) => x.id === id);
-  if (!p || p.builtin) return;
+  if (!p) return;
   p.name = promptNameInput.value.trim() || p.name;
   p.text = promptTextInput.value;
   savePrompts(state.prompts);
@@ -2089,22 +2095,32 @@ export async function init() {
   state.activePromptId = loadActivePromptId();
 
   try {
-    state.defaultPromptText = await fetchDefaultPrompt();
+    state.rootPromptText = await fetchDefaultPrompt();
   } catch (err) {
-    console.error("Failed to load default prompt:", err);
+    console.error("Failed to load base prompt:", err);
   }
 
+  try {
+    state.defaultPersonalityText = await fetchDefaultPersonality();
+  } catch (err) {
+    console.error("Failed to load default personality:", err);
+  }
+
+  basePromptText.value = state.rootPromptText;
+
+  const version = loadPromptsVersion();
   const builtin = state.prompts.find((p) => p.builtin);
   if (!builtin) {
     state.prompts.unshift({
       id: BUILTIN_PROMPT_ID,
       name: "Default",
-      text: state.defaultPromptText || "",
+      text: state.defaultPersonalityText || "",
       builtin: true,
     });
-  } else if (state.defaultPromptText) {
-    builtin.text = state.defaultPromptText;
+  } else if (!version || Number(version) < PROMPTS_VERSION) {
+    builtin.text = state.defaultPersonalityText || builtin.text;
   }
+  savePromptsVersion();
   savePrompts(state.prompts);
 
   recomputeModels();

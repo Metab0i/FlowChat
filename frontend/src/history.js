@@ -55,6 +55,19 @@ export function getConversationHistory(node, nodes, edges) {
 
   visit(node);
 
+  const depth = new Map([[node.id, 0]]);
+  const queue = [node.id];
+  while (queue.length) {
+    const cur = queue.shift();
+    const next = depth.get(cur) + 1;
+    for (const inc of getIncomers(cur, nodes, edges)) {
+      if (!depth.has(inc)) {
+        depth.set(inc, next);
+        queue.push(inc);
+      }
+    }
+  }
+
   return order.map((n) => ({
     id: n.id,
     role: n.type === "userInput" ? "user" : "assistant",
@@ -64,5 +77,6 @@ export function getConversationHistory(node, nodes, edges) {
       n.id === node.id
         ? []
         : getOutgoers(n.id, nodes, edges).filter((id) => included.has(id)),
+    depth: depth.has(n.id) ? depth.get(n.id) : 0,
   }));
 }

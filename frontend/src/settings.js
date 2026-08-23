@@ -2,6 +2,8 @@ const PROVIDERS_KEY = "flowchat.providers";
 const PROMPTS_KEY = "flowchat.prompts";
 const ACTIVE_PROMPT_KEY = "flowchat.activePromptId";
 const DEFAULT_MODEL_KEY = "flowchat.defaultModel";
+const PROMPTS_VERSION_KEY = "flowchat.promptsVersion";
+const PROMPTS_VERSION = 2;
 
 const BUILTIN_PROMPT_ID = "builtin-default";
 
@@ -57,6 +59,16 @@ export function saveActivePromptId(id) {
   if (id) localStorage.setItem(ACTIVE_PROMPT_KEY, id);
   else localStorage.removeItem(ACTIVE_PROMPT_KEY);
 }
+
+export function loadPromptsVersion() {
+  return localStorage.getItem(PROMPTS_VERSION_KEY);
+}
+
+export function savePromptsVersion() {
+  localStorage.setItem(PROMPTS_VERSION_KEY, String(PROMPTS_VERSION));
+}
+
+export { PROMPTS_VERSION };
 
 export function loadDefaultModel() {
   return localStorage.getItem(DEFAULT_MODEL_KEY);

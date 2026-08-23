@@ -5,13 +5,26 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, request, send_from_directory
 
 from llm import detect_key, generate
+from llm.schema import derive_schema
 from llm.sse import format_chunk, format_done, format_error
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR.parent / "frontend"
 SYSTEM_PROMPT_PATH = BASE_DIR / "system_prompt.md"
+PERSONALITY_DEFAULT_PATH = BASE_DIR / "personality_default.md"
 
 app = Flask(__name__, static_folder=str(FRONTEND_DIR), static_url_path="")
+
+ROOT_PROMPT = (
+    SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+    if SYSTEM_PROMPT_PATH.exists()
+    else ""
+)
+PERSONALITY_DEFAULT = (
+    PERSONALITY_DEFAULT_PATH.read_text(encoding="utf-8")
+    if PERSONALITY_DEFAULT_PATH.exists()
+    else ""
+)
 
 TITLE_SYSTEM_PROMPT = (
     "You are a title generator. Given a message, write a very concise title "
@@ -34,12 +47,16 @@ def index():
 
 @app.route("/defaults/system-prompt", methods=["GET"])
 def default_system_prompt_route():
-    if SYSTEM_PROMPT_PATH.exists():
-        return Response(
-            SYSTEM_PROMPT_PATH.read_text(encoding="utf-8"),
-            mimetype="text/markdown",
-        )
-    return "", 404
+    if not ROOT_PROMPT:
+        return "", 404
+    return Response(ROOT_PROMPT, mimetype="text/markdown")
+
+
+@app.route("/defaults/personality", methods=["GET"])
+def default_personality_route():
+    if not PERSONALITY_DEFAULT:
+        return "", 404
+    return Response(PERSONALITY_DEFAULT, mimetype="text/markdown")
 
 
 @app.route("/detect", methods=["POST"])
@@ -56,12 +73,18 @@ def generate_route():
     data = request.get_json(force=True)
     model = (data or {}).get("model")
     api_key = (data or {}).get("api_key")
-    system_prompt = (data or {}).get("system_prompt", "")
+    personality = (data or {}).get("system_prompt", "")
     conversation = (data or {}).get("conversation")
-    user_content = json.dumps({"conversation": conversation})
 
     if not api_key:
         return jsonify({"error": "missing api_key"}), 400
+
+    payload = {"conversation": conversation}
+    user_content = json.dumps(payload)
+    schema_block = derive_schema(payload)
+    system_prompt = "\n\n".join(
+        part for part in [ROOT_PROMPT, schema_block, personality] if part
+    )
 
     def stream():
         try:

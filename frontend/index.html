@@ -73,15 +73,21 @@
         <div id="add-key-status" class="form-text"></div>
       </section>
       <hr />
+      <section id="base-prompt-section">
+        <h6 class="mb-2">Base prompt</h6>
+        <textarea id="base-prompt-text" class="form-control form-control-sm mb-2" rows="6" readonly></textarea>
+        <p class="form-text text-muted mb-0">Applies to every message. Managed by the app and not editable.</p>
+      </section>
+      <hr />
       <section id="prompts-section">
         <div class="d-flex align-items-center justify-content-between mb-2">
-          <h6 class="mb-0">System prompt</h6>
+          <h6 class="mb-0">Personality</h6>
           <button id="new-prompt-btn" class="btn btn-sm btn-outline-secondary">New</button>
         </div>
         <select id="prompt-select" class="form-select form-select-sm mb-3"></select>
         <div id="prompt-editor" hidden>
-          <input id="prompt-name-input" class="form-control form-control-sm mb-2" placeholder="Prompt name" />
-          <textarea id="prompt-text-input" class="form-control form-control-sm mb-2" rows="10" placeholder="System prompt text..."></textarea>
+          <input id="prompt-name-input" class="form-control form-control-sm mb-2" placeholder="Personality name" />
+          <textarea id="prompt-text-input" class="form-control form-control-sm mb-2" rows="10" placeholder="Personality text..."></textarea>
           <div class="d-flex gap-2">
             <button id="save-prompt-btn" class="btn btn-sm btn-primary">Save</button>
             <button id="delete-prompt-btn" class="btn btn-sm btn-outline-danger">Delete</button>

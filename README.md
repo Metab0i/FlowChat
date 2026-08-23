@@ -72,8 +72,8 @@ persists or logs them.
 
 On first launch you'll be prompted for an API key. FlowChat auto-detects the
 provider (OpenCode Go or OpenAI, with more providers pluggable later), and you
-can add multiple keys per provider. Manage keys and system prompts anytime via
-the ⚙ settings panel in the top-right corner.
+can add multiple keys per provider. Manage keys, the base prompt, and
+personalities anytime via the ⚙ settings panel in the top-right corner.
 
 Models are namespaced by provider: `openai/<id>` and `opencode-go/<id>`. The
 backend routes each OpenCode Go model through the correct protocol

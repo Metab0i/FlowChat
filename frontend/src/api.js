@@ -21,7 +21,15 @@ export async function fetchDefaultPrompt() {
   return res.text();
 }
 
-export async function fetchTitle(apiKey, model, content, timeoutMs = 15000) {
+export async function fetchDefaultPersonality() {
+  const res = await fetch(`${API_BASE}/defaults/personality`);
+  if (!res.ok) {
+    throw new Error(`Failed to load default personality (${res.status})`);
+  }
+  return res.text();
+}
+
+export async function fetchTitle(apiKey, model, content, timeoutMs = 30000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
