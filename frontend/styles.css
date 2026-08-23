@@ -8,6 +8,7 @@ html, body {
   padding: 0;
   height: 100%;
   overflow: hidden;
+  user-select: none;
 }
 
 body { display: flex; flex-direction: column; }
@@ -42,6 +43,7 @@ body { display: flex; flex-direction: column; }
   position: relative;
   background: var(--bs-body-bg);
   isolation: isolate;
+  user-select: text;
 }
 #inspector-content pre {
   background: var(--bs-tertiary-bg);
@@ -175,8 +177,14 @@ body { display: flex; flex-direction: column; }
   position: relative;
   background: var(--bs-body-bg);
   isolation: isolate;
+  caret-color: transparent;
+  outline: none;
 }
+.node-body.editing { caret-color: auto; }
 .node-body.folded { max-height: 8em; overflow-y: auto; overflow-x: hidden; }
+
+.flow-node.border-success .node-body { background: #c4ddd2; }
+.flow-node.border-primary .node-body { background: #c2d8ff; }
 
 .node-body {
   scrollbar-width: thin;
@@ -216,6 +224,7 @@ body { display: flex; flex-direction: column; }
   border-radius: 3px;
   background: #ffff00;
   mix-blend-mode: multiply;
+  user-select: none;
 }
 .flow-selection:hover,
 .flow-selection-hover {
@@ -237,20 +246,6 @@ body.is-selecting .flow-selection-hover {
 #inspector-resizer,
 #context-menu {
   user-select: none;
-}
-
-.node-editor {
-  width: 100%;
-  min-height: 60px;
-  resize: vertical;
-  border: 1px solid var(--bs-border-color);
-  border-radius: var(--bs-border-radius);
-  padding: 6px;
-  font-family: inherit;
-  font-size: 0.875rem;
-  line-height: 1.5;
-  background: var(--bs-body-bg);
-  user-select: text;
 }
 
 /* Connection ports */

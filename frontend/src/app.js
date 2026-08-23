@@ -4,7 +4,7 @@ import { getOutgoers, findAllDescendants, getConversationHistory } from "./histo
 import { renderMarkdownInto } from "./markdown.js";
 import { createPanZoom } from "./panzoom.js";
 import { makeResizable } from "./resize.js";
-import { applySelectionOverlays, clearSelectionOverlays, rangeToOffsets, textNodes } from "./selection.js";
+import { applySelectionOverlays, clearSelectionOverlays, rangeToOffsets } from "./selection.js";
 
 const canvas = document.getElementById("canvas");
 const viewport = document.getElementById("viewport");
@@ -101,6 +101,8 @@ instance.bind("connection", (info) => {
   drawMinimap();
   refreshSelectionsForNode(sourceId);
   refreshSelectionsForNode(targetId);
+  syncGenerateButton(state.nodes.get(sourceId));
+  syncGenerateButton(state.nodes.get(targetId));
 });
 
 instance.bind("connection:detach", (info) => {
@@ -110,6 +112,8 @@ instance.bind("connection:detach", (info) => {
       state.edges.delete(id);
       refreshSelectionsForNode(e.source);
       refreshSelectionsForNode(e.target);
+      syncGenerateButton(state.nodes.get(e.source));
+      syncGenerateButton(state.nodes.get(e.target));
       break;
     }
   }
@@ -357,59 +361,6 @@ quoteChipClear.addEventListener("click", (e) => {
   clearPendingSelection();
 });
 
-/* ---------- selection clamp (restrict to source node) ---------- */
-
-let lastMouseX = 0;
-let lastMouseY = 0;
-let isClamping = false;
-
-window.addEventListener("mousemove", (e) => {
-  lastMouseX = e.clientX;
-  lastMouseY = e.clientY;
-});
-
-function rootForNode(n) {
-  const el = n && n.nodeType === Node.TEXT_NODE ? n.parentElement : n;
-  return el && el.closest ? el.closest(".node-body, #inspector-content") : null;
-}
-
-function clampSelectionToRoot(sel, root) {
-  const range = sel.getRangeAt(0);
-  const anchorIsStart = sel.anchorNode === range.startContainer && sel.anchorOffset === range.startOffset;
-
-  const rect = root.getBoundingClientRect();
-  const x = Math.min(Math.max(lastMouseX, rect.left), rect.right - 1);
-  const y = Math.min(Math.max(lastMouseY, rect.top), rect.bottom - 1);
-
-  let caret = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
-  if (!caret || !root.contains(caret.startContainer)) {
-    const nodes = textNodes(root);
-    if (!nodes.length) return;
-    caret = document.createRange();
-    if (anchorIsStart) {
-      const last = nodes[nodes.length - 1];
-      caret.setStart(last, last.data.length);
-    } else {
-      caret.setStart(nodes[0], 0);
-    }
-    caret.collapse(true);
-  }
-
-  const newRange = document.createRange();
-  if (anchorIsStart) {
-    newRange.setStart(sel.anchorNode, sel.anchorOffset);
-    newRange.setEnd(caret.startContainer, caret.startOffset);
-  } else {
-    newRange.setStart(caret.startContainer, caret.startOffset);
-    newRange.setEnd(sel.anchorNode, sel.anchorOffset);
-  }
-
-  isClamping = true;
-  sel.removeAllRanges();
-  sel.addRange(newRange);
-  isClamping = false;
-}
-
 /* ---------- blocked (already-highlighted) selection ---------- */
 
 let blockedSelection = false;
@@ -452,7 +403,6 @@ function clearBlockedSelection() {
 }
 
 document.addEventListener("selectionchange", () => {
-  if (isClamping) return;
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return;
   if (sel.isCollapsed) {
@@ -460,11 +410,6 @@ document.addEventListener("selectionchange", () => {
     return;
   }
   const range = sel.getRangeAt(0);
-  const anchorRoot = rootForNode(sel.anchorNode);
-  if (anchorRoot && !anchorRoot.contains(sel.focusNode)) {
-    clampSelectionToRoot(sel, anchorRoot);
-    return;
-  }
   const c = containerForSelection(range);
   if (!c) {
     clearBlockedSelection();
@@ -529,6 +474,52 @@ document.addEventListener("mousedown", (e) => {
 
 window.addEventListener("mouseup", endTextSelecting);
 window.addEventListener("blur", endTextSelecting);
+
+/* ---------- read-only contenteditable guards ---------- */
+
+function editingNodeFor(body) {
+  const nodeEl = body.closest && body.closest(".flow-node");
+  const node = nodeEl && state.nodes.get(nodeEl.dataset.id);
+  return node && node.type === "userInput" && node.editing ? node : null;
+}
+
+document.addEventListener("beforeinput", (e) => {
+  const body = e.target && e.target.closest && e.target.closest(".node-body");
+  if (!body || !body.isContentEditable) return;
+  if (editingNodeFor(body)) return;
+  e.preventDefault();
+});
+
+document.addEventListener("keydown", (e) => {
+  const body = e.target && e.target.closest && e.target.closest(".node-body");
+  if (!body || !body.isContentEditable) return;
+  if (editingNodeFor(body)) return;
+  if (e.key === "Enter" || e.key === "Backspace" || e.key === "Delete" || e.key === " ") {
+    e.preventDefault();
+  }
+});
+
+document.addEventListener("paste", (e) => {
+  const body = e.target && e.target.closest && e.target.closest(".node-body");
+  if (!body || !body.isContentEditable) return;
+  if (!editingNodeFor(body)) {
+    e.preventDefault();
+    return;
+  }
+  e.preventDefault();
+  const text = e.clipboardData.getData("text/plain");
+  if (text) document.execCommand("insertText", false, text);
+});
+
+document.addEventListener("drop", (e) => {
+  const body = e.target && e.target.closest && e.target.closest(".node-body");
+  if (body) e.preventDefault();
+});
+
+document.addEventListener("dragover", (e) => {
+  const body = e.target && e.target.closest && e.target.closest(".node-body");
+  if (body) e.preventDefault();
+});
 
 document.addEventListener("mouseover", (e) => {
   if (isTextSelecting) return;
@@ -647,14 +638,21 @@ function createNodeElement(node) {
   header.appendChild(actions);
 
   if (node.type === "userInput") {
-    const regen = document.createElement("button");
-    regen.classList.add("btn", "btn-sm", "btn-outline-secondary", "regenerate");
-    regen.setAttribute("title", "Regenerate");
-    regen.textContent = "🗘";
-    actions.appendChild(regen);
+    const gen = document.createElement("button");
+    gen.classList.add("btn", "btn-sm", "btn-outline-secondary", "generate");
+    gen.setAttribute("title", "Generate response");
+    gen.textContent = "🗘";
+    gen.setAttribute("hidden", "");
+    actions.appendChild(gen);
   }
 
   if (node.type === "llm") {
+    const regen = document.createElement("button");
+    regen.classList.add("btn", "btn-sm", "btn-outline-secondary", "regenerate");
+    regen.setAttribute("title", "Refresh response");
+    regen.textContent = "🗘";
+    actions.appendChild(regen);
+
     const spinner = document.createElement("span");
     spinner.classList.add("spinner-border", "spinner-border-sm", "text-primary", "node-spinner");
     spinner.setAttribute("role", "status");
@@ -686,6 +684,9 @@ function createNodeElement(node) {
 
   const body = document.createElement("div");
   body.classList.add("card-body", "node-body", "p-2");
+  body.setAttribute("contenteditable", "true");
+  body.setAttribute("spellcheck", "false");
+  body.setAttribute("autocapitalize", "off");
   el.appendChild(body);
 
   const footer = document.createElement("div");
@@ -742,9 +743,16 @@ function createNodeElement(node) {
   });
 
   if (node.type === "userInput") {
+    el.querySelector(".generate").addEventListener("click", (e) => {
+      e.stopPropagation();
+      generateForUserInput(node.id);
+    });
+  }
+
+  if (node.type === "llm") {
     el.querySelector(".regenerate").addEventListener("click", (e) => {
       e.stopPropagation();
-      regenerateFrom(node.id);
+      regenerateLlm(node.id);
     });
   }
 
@@ -769,6 +777,7 @@ function createNodeElement(node) {
   }
 
   renderNodeBody(node);
+  syncGenerateButton(node);
   return el;
 }
 
@@ -798,31 +807,33 @@ function populateModelSelect(select, value) {
 }
 
 function beginEdit(node) {
+  if (node.type !== "userInput") return;
   const body = node.el.querySelector(".node-body");
   if (!body) return;
-  const ta = document.createElement("textarea");
-  ta.classList.add("node-editor");
-  ta.value = node.text || "";
-  ta.setAttribute("data-jtk-not-draggable", "true");
-  body.replaceWith(ta);
-  node._editor = ta;
-  ta.focus();
-  ta.addEventListener("blur", () => finishEdit(node));
+  node.editing = true;
+  body.classList.add("editing");
+  body.focus();
+  const sel = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(body);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+  if (!node._blurBound) {
+    node._blurBound = () => finishEdit(node);
+    body.addEventListener("blur", node._blurBound);
+  }
 }
 
 function finishEdit(node) {
-  const ta = node._editor;
-  if (!ta) return;
-  node.text = ta.value;
-
-  const body = document.createElement("div");
-  body.classList.add("card-body", "node-body", "p-2");
-  body.addEventListener("dblclick", () => beginEdit(node));
-  ta.replaceWith(body);
-  node._editor = null;
-
+  if (!node.editing) return;
+  node.editing = false;
+  const body = node.el.querySelector(".node-body");
+  if (body) {
+    body.classList.remove("editing");
+    node.text = body.textContent || "";
+  }
   renderNodeBody(node);
-
   if (state.inspectorNodeId === node.id) refreshInspector();
 }
 
@@ -930,6 +941,7 @@ function deleteNode(id) {
 
   for (const nodeId of affected) {
     refreshSelectionsForNode(nodeId);
+    syncGenerateButton(state.nodes.get(nodeId));
   }
 }
 
@@ -1064,30 +1076,59 @@ function createConnectedNode(id) {
   connectNodes(node.id, newNode.id);
 }
 
-async function regenerateFrom(userNodeId) {
+function clearSelectionsForNode(nodeId) {
+  if (!state.selections.has(nodeId)) return;
+  state.selections.delete(nodeId);
+  refreshSelectionsForNode(nodeId);
+}
+
+let pendingRegen = null; // { nodeId, until }
+
+function hasOutgoingLlm(nodeId) {
+  return getOutgoers(nodeId, state.nodes, state.edges).some((id) => state.nodes.get(id)?.type === "llm");
+}
+
+function syncGenerateButton(node) {
+  if (!node || node.type !== "userInput") return;
+  const btn = node.el.querySelector(".generate");
+  if (!btn) return;
+  if (hasOutgoingLlm(node.id)) btn.setAttribute("hidden", "");
+  else btn.removeAttribute("hidden");
+}
+
+async function generateForUserInput(userNodeId) {
   const userNode = state.nodes.get(userNodeId);
   if (!userNode) return;
+  if (hasOutgoingLlm(userNodeId)) return;
+  const pos = getNodePosition(userNode);
+  const height = userNode.el.offsetHeight || 100;
+  const llmNode = addNode("llm", {
+    position: { x: pos.x, y: pos.y + height + 60 },
+  });
+  connectNodes(userNodeId, llmNode.id);
+  await generateResponse(llmNode.id);
+}
 
-  const outgoers = getOutgoers(userNodeId, state.nodes, state.edges);
+async function regenerateLlm(llmId) {
+  const llmNode = state.nodes.get(llmId);
+  if (!llmNode || llmNode.type !== "llm") return;
 
-  if (outgoers.length === 0) {
-    const pos = getNodePosition(userNode);
-    const height = userNode.el.offsetHeight || 100;
-    const llmNode = addNode("llm", {
-      position: { x: pos.x, y: pos.y + height + 60 },
-    });
-    connectNodes(userNodeId, llmNode.id);
-    await generateResponse(llmNode.id);
-    return;
-  }
-
-  const descendants = findAllDescendants(userNodeId, state.nodes, state.edges);
-  for (const id of descendants) {
-    const n = state.nodes.get(id);
-    if (n && n.type === "llm") {
-      await generateResponse(id);
+  const highlighted = (state.selections.get(llmId) || []).length > 0;
+  if (highlighted) {
+    const now = Date.now();
+    if (pendingRegen && pendingRegen.nodeId === llmId && now < pendingRegen.until) {
+      pendingRegen = null;
+    } else {
+      pendingRegen = { nodeId: llmId, until: now + 5000 };
+      showToast("Regenerating will delete its highlight(s). Click refresh again to confirm.");
+      return;
     }
+  } else {
+    pendingRegen = null;
   }
+
+  clearSelectionsForNode(llmId);
+  await generateResponse(llmId);
 }
 
 async function generateResponse(llmNodeId) {
@@ -1273,7 +1314,7 @@ window.addEventListener("mousedown", (e) => {
 
 window.addEventListener("keydown", (e) => {
   const tag = (e.target && e.target.tagName) || "";
-  const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target.isContentEditable;
   if (typing) return;
 
   if ((e.key === "Delete" || e.key === "Backspace") && state.selectedIds.size) {

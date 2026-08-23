@@ -115,6 +115,7 @@ export function applySelectionOverlays(root, ranges, getZoom) {
     for (const rect of unionRects(range.getClientRects())) {
       const div = document.createElement("div");
       div.className = "flow-selection";
+      div.setAttribute("contenteditable", "false");
       if (r.id) div.dataset.selectionId = r.id;
       div.style.left = `${(rect.l - rootRect.left - borderLeft) / zoom + root.scrollLeft}px`;
       div.style.top = `${(rect.t - rootRect.top - borderTop) / zoom + root.scrollTop}px`;
