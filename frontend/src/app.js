@@ -60,17 +60,17 @@ const panzoom = createPanZoom({
 
 /* ---------- jsPlumb source/target selectors ---------- */
 
-const PORT_ANCHORS = [
-  [".flow-node .port-top", "Top"],
-  [".flow-node .port-right", "Right"],
-  [".flow-node .port-bottom", "Bottom"],
-  [".flow-node .port-left", "Left"],
+const PORT_SELECTORS = [
+  ".flow-node .port-top",
+  ".flow-node .port-right",
+  ".flow-node .port-bottom",
+  ".flow-node .port-left",
 ];
 
-for (const [selector, anchor] of PORT_ANCHORS) {
+for (const selector of PORT_SELECTORS) {
   const params = {
     scope: "flowchat",
-    anchor,
+    anchor: "AutoDefault",
     maxConnections: -1,
     allowLoopback: false,
     endpoint: "Blank",
