@@ -9,22 +9,49 @@ single thread.
 
 ## Features
 
+### Messages & nodes
+
 | Feature | Description | How to use |
 | --- | --- | --- |
 | Conversation nodes | User inputs and LLM responses are cards on a canvas | Type in the chat bar and click **Send** |
-| Connect nodes | Wire cards into a conversation graph | Drag from a node's bottom handle to another node's top handle |
 | Streaming responses | Responses render as Markdown with syntax highlighting, streamed live | Send a message; the reply streams into its node |
-| Quote & branch | Select text on a node to branch a new response off that quote | Select text on a node, then click **Send** (optionally type a message first) |
-| Highlight tracing | Overlapping quotes merge into one highlight per area | Hover a highlight to trace its branch down the graph |
+| Edit node text | Change a user-input message inline | Double-click the body of a user-input node |
 | Regenerate (cascade) | Re-run an LLM response and everything downstream | Click the 🗘 button on a user-input node |
+| Model selection | Global default model plus a per-node override | Toolbar dropdown for the default; each node has its own dropdown |
+
+### Node management
+
+| Feature | Description | How to use |
+| --- | --- | --- |
 | Replicate node | Duplicate a node while keeping its upstream context | Right-click a node → **Replicate Node** |
 | Create connected node | Add an empty node wired to the selected node | Right-click a node → **Create Connected Node** |
-| Delete node / edge | Remove cards or connections | Right-click a node → **Delete Node**, or click a connection line to delete it |
+| Delete a node | Remove a card (and its connections) | Right-click a node → **Delete Node**, or press **Delete**/**Backspace** (Shift-click to multi-select) |
+
+### Connections & branching
+
+| Feature | Description | How to use |
+| --- | --- | --- |
+| Connect nodes | Wire cards into a conversation graph | Drag from a node's bottom handle to another node's top handle |
+| Quote & branch | Select text on a node to branch a new response off that quote | Select text, then click **Send** (optionally type a message first) |
+| Highlight tracing | Overlapping quotes merge into one highlight per area | Hover a highlight to trace its branch down the graph |
+| Delete a connection | Remove an edge/association between cards | Click the connection line |
+
+### Navigation
+
+| Feature | Description | How to use |
+| --- | --- | --- |
+| Pan | Move around the canvas | Drag the empty canvas |
+| Zoom | Scale the canvas in and out | Scroll |
+| Minimap | Overview of the whole flow | Top-right corner of the canvas |
+| Inspector panel | Read a node's full content in a side panel | Select a node and click **Inspector**, or double-click a node |
 | Fold / expand | Collapse tall nodes to keep the canvas tidy | Click the ▾/▸ toggle in a node header |
-| Model selection | Global default model plus a per-node override | Toolbar dropdown for the default; each node has its own dropdown |
-| Inspector panel | Read a node's full content in a side panel | Select a node, then click **Inspector** in the toolbar |
-| Pan / zoom + minimap | Navigate large flows | Drag the empty canvas to pan, scroll to zoom; minimap in the top-right |
-| Export / import | Persist the whole flow as JSON | Toolbar **Export** / **Import** buttons |
+
+### Persistence
+
+| Feature | Description | How to use |
+| --- | --- | --- |
+| Export | Save the whole flow as JSON | Toolbar **Export** button |
+| Import | Load a flow from JSON | Toolbar **Import** button |
 
 ## Installation
 
