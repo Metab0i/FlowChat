@@ -1,10 +1,24 @@
 import { newInstance } from "@jsplumb/browser-ui";
-import { fetchModels, fetchTitle, streamGenerate } from "./api.js";
+import { detectKey, fetchDefaultPrompt, fetchTitle, streamGenerate } from "./api.js";
 import { getOutgoers, findAllDescendants, getConversationHistory } from "./history.js";
 import { renderMarkdownInto } from "./markdown.js";
 import { createPanZoom } from "./panzoom.js";
 import { makeResizable } from "./resize.js";
 import { applySelectionOverlays, clearSelectionOverlays, rangeToOffsets } from "./selection.js";
+import {
+  loadProviders,
+  saveProviders,
+  loadPrompts,
+  savePrompts,
+  loadActivePromptId,
+  saveActivePromptId,
+  loadDefaultModel,
+  saveDefaultModel,
+  BUILTIN_PROMPT_ID,
+  adjectiveAnimalId,
+  uniquePromptName,
+  uniqueProviderLabel,
+} from "./settings.js";
 
 const canvas = document.getElementById("canvas");
 const viewport = document.getElementById("viewport");
@@ -18,6 +32,25 @@ const inspectorContent = document.getElementById("inspector-content");
 const inspectorClose = document.getElementById("inspector-close");
 const inspectorResizer = document.getElementById("inspector-resizer");
 
+const settingsPane = document.getElementById("settings-pane");
+const settingsBtn = document.getElementById("settings-btn");
+const settingsClose = document.getElementById("settings-close");
+const providerList = document.getElementById("provider-list");
+const addKeyForm = document.getElementById("add-key-form");
+const addKeyInput = document.getElementById("add-key-input");
+const addKeyStatus = document.getElementById("add-key-status");
+const promptSelect = document.getElementById("prompt-select");
+const promptEditor = document.getElementById("prompt-editor");
+const promptNameInput = document.getElementById("prompt-name-input");
+const promptTextInput = document.getElementById("prompt-text-input");
+const savePromptBtn = document.getElementById("save-prompt-btn");
+const deletePromptBtn = document.getElementById("delete-prompt-btn");
+const newPromptBtn = document.getElementById("new-prompt-btn");
+const keyOverlay = document.getElementById("key-overlay");
+const overlayKeyForm = document.getElementById("overlay-key-form");
+const overlayKeyInput = document.getElementById("overlay-key-input");
+const overlayStatus = document.getElementById("overlay-status");
+
 const quoteChip = document.getElementById("quote-chip");
 const quoteChipText = document.getElementById("quote-chip-text");
 const quoteChipClear = document.getElementById("quote-chip-clear");
@@ -29,6 +62,10 @@ const state = {
   pendingSelection: null, // { nodeId, start, end, text }
   models: [],
   defaultModel: "",
+  providers: [],
+  prompts: [],
+  activePromptId: null,
+  defaultPromptText: "",
   selectedIds: new Set(),
   contextNodeId: null,
   inspectorNodeId: null,
@@ -786,7 +823,7 @@ function populateModelSelect(select, value) {
   if (state.models.length === 0) {
     const opt = document.createElement("option");
     opt.value = "";
-    opt.textContent = "Loading models...";
+    opt.textContent = "No models available";
     select.appendChild(opt);
     return;
   }
@@ -1143,25 +1180,47 @@ async function generateResponse(llmNodeId) {
   renderNodeBody(llmNode);
 
   const history = getConversationHistory(llmNode, state.nodes, state.edges);
-  try {
-    await streamGenerate(llmNode.model, history, (chunk) => {
-      llmNode.text += chunk;
-      const now = performance.now();
-      if (!llmNode._lastRender || now - llmNode._lastRender > 120) {
-        renderNodeBody(llmNode);
-        if (state.inspectorNodeId === llmNode.id) refreshInspector();
-        llmNode._lastRender = now;
+  const prompt = activePromptText();
+  const keys = resolveKeys(llmNode.model);
+
+  let success = false;
+  let lastError = null;
+
+  if (keys.length === 0) {
+    lastError = new Error("No API key configured for this model");
+    showToast(lastError.message);
+  } else {
+    for (const key of keys) {
+      llmNode.text = "";
+      try {
+        await streamGenerate(key.apiKey, llmNode.model, prompt, history, (chunk) => {
+          llmNode.text += chunk;
+          const now = performance.now();
+          if (!llmNode._lastRender || now - llmNode._lastRender > 120) {
+            renderNodeBody(llmNode);
+            if (state.inspectorNodeId === llmNode.id) refreshInspector();
+            llmNode._lastRender = now;
+          }
+        });
+        success = true;
+        break;
+      } catch (err) {
+        lastError = err;
+        llmNode.text = "";
+        showToast(`${key.label} failed: ${err.message}`);
       }
-    });
-  } catch (err) {
-    llmNode.text += `\n\n[error] ${err.message}`;
-  } finally {
-    llmNode.loading = false;
-    updateSpinner(llmNode);
-    renderNodeBody(llmNode);
-    if (state.inspectorNodeId === llmNode.id) refreshInspector();
-    generateTitle(llmNode);
+    }
   }
+
+  if (!success && lastError) {
+    llmNode.text = `[error] ${lastError.message}`;
+  }
+
+  llmNode.loading = false;
+  updateSpinner(llmNode);
+  renderNodeBody(llmNode);
+  if (state.inspectorNodeId === llmNode.id) refreshInspector();
+  generateTitle(llmNode);
 }
 
 function updateSpinner(node) {
@@ -1198,9 +1257,13 @@ async function generateTitle(llmNode) {
     if (state.inspectorNodeId === llmNode.id) refreshInspector();
   }
 
+  const keys = resolveKeys(llmNode.model);
+  const apiKey = keys.length ? keys[0].apiKey : null;
+  if (!apiKey) return;
+
   let better = "";
   try {
-    better = await fetchTitle(llmNode.model, llmNode.text, 15000);
+    better = await fetchTitle(apiKey, llmNode.model, llmNode.text, 15000);
     console.log("[FC-title]", llmNode.id, "model=", llmNode.model, "title=", JSON.stringify(better));
   } catch (err) {
     console.warn("[FC-title] fetchTitle failed, keeping fallback:", err?.message || err);
@@ -1359,7 +1422,10 @@ function serialize() {
       });
     }
   }
-  return { version: 2, nodes, edges, selections };
+  const prompts = state.prompts
+    .filter((p) => !p.builtin)
+    .map((p) => ({ name: p.name, text: p.text }));
+  return { version: 3, nodes, edges, selections, prompts };
 }
 
 function clearAll() {
@@ -1417,6 +1483,20 @@ function deserialize(data) {
     );
   }
 
+  if (Array.isArray(data.prompts)) {
+    for (const raw of data.prompts) {
+      if (state.prompts.some((p) => p.name === raw.name)) continue;
+      state.prompts.push({
+        id: uid("p"),
+        name: raw.name,
+        text: raw.text || "",
+        builtin: false,
+      });
+    }
+    savePrompts(state.prompts);
+    renderPrompts();
+  }
+
   for (const node of state.nodes.values()) {
     refreshSelectionsForNode(node.id);
   }
@@ -1427,6 +1507,7 @@ function deserialize(data) {
 /* ---------- toolbar / chat wiring ---------- */
 
 const defaultModelSelect = document.getElementById("default-model-select");
+const refreshModelsBtn = document.getElementById("refresh-models-btn");
 const chatInput = document.getElementById("chat-input");
 const sendBtn = document.getElementById("send-btn");
 
@@ -1445,7 +1526,16 @@ function refreshDefaultModelSelect() {
 
 defaultModelSelect.addEventListener("change", (e) => {
   state.defaultModel = e.target.value;
-  localStorage.setItem("flowchat.defaultModel", state.defaultModel);
+  saveDefaultModel(state.defaultModel);
+});
+
+refreshModelsBtn.addEventListener("click", async () => {
+  refreshModelsBtn.disabled = true;
+  try {
+    await revalidateProviders();
+  } finally {
+    refreshModelsBtn.disabled = false;
+  }
 });
 
 sendBtn.addEventListener("click", () => {
@@ -1568,21 +1658,464 @@ function minimapLoop(ts) {
 }
 requestAnimationFrame(minimapLoop);
 
-/* ---------- init ---------- */
+/* ---------- settings: providers, prompts, keys ---------- */
 
-export async function init() {
-  try {
-    state.models = await fetchModels();
-  } catch (err) {
-    console.error("Failed to fetch models:", err);
+function namespaceModels(providerId, ids) {
+  return (ids || []).map((m) => `${providerId}/${m}`);
+}
+
+function recomputeModels() {
+  const map = new Map();
+  for (const p of state.providers) {
+    for (const modelId of p.models || []) {
+      if (!map.has(modelId)) {
+        map.set(modelId, String(modelId).slice(String(modelId).indexOf("/") + 1));
+      }
+    }
   }
+  state.models = [...map.entries()].map(([id, label]) => ({ id, label }));
+}
 
-  const saved = localStorage.getItem("flowchat.defaultModel");
+function resolveKeys(modelRef) {
+  const providerId = String(modelRef || "").split("/")[0];
+  return state.providers.filter((p) => p.provider === providerId);
+}
+
+function activePromptText() {
+  const p =
+    state.prompts.find((x) => x.id === state.activePromptId) ||
+    state.prompts.find((x) => x.builtin);
+  return p ? p.text : "";
+}
+
+function maskKey(apiKey) {
+  if (!apiKey) return "";
+  return `••••••••${apiKey.slice(-4)}`;
+}
+
+function refreshAllModelSelects() {
+  refreshDefaultModelSelect();
+  for (const n of state.nodes.values()) {
+    if (n.type === "llm") {
+      populateModelSelect(n.el.querySelector(".model-select"), n.model);
+    }
+  }
+}
+
+function syncDefaultModel() {
+  const saved = loadDefaultModel();
   if (saved && state.models.some((m) => m.id === saved)) {
     state.defaultModel = saved;
   } else if (state.models.length > 0) {
     state.defaultModel = state.models[0].id;
+  } else {
+    state.defaultModel = "";
+  }
+}
+
+function updateBlockingOverlay() {
+  if (state.providers.length === 0) {
+    keyOverlay.removeAttribute("hidden");
+    overlayStatus.textContent = "";
+    overlayKeyInput.value = "";
+    overlayKeyInput.focus();
+  } else {
+    keyOverlay.setAttribute("hidden", "");
+  }
+}
+
+async function detectAndAddKey(rawKey, statusEl) {
+  const apiKey = String(rawKey || "").trim();
+  if (!apiKey) {
+    if (statusEl) statusEl.textContent = "Enter a key.";
+    return null;
+  }
+  if (statusEl) statusEl.textContent = "Detecting provider…";
+
+  let result;
+  try {
+    result = await detectKey(apiKey);
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `Detection failed: ${err.message}`;
+    return null;
   }
 
+  if (!result.provider) {
+    if (statusEl) statusEl.textContent = result.error || "Unrecognized key.";
+    return null;
+  }
+
+  const entry = {
+    id: uid("k"),
+    label: adjectiveAnimalId(state.providers),
+    provider: result.provider,
+    apiKey,
+    models: namespaceModels(result.provider, result.models),
+    valid: true,
+    createdAt: Date.now(),
+  };
+  state.providers.push(entry);
+  saveProviders(state.providers);
+  recomputeModels();
+  syncDefaultModel();
+  refreshAllModelSelects();
+  renderProviders();
+  updateBlockingOverlay();
+  if (statusEl) statusEl.textContent = "";
+  return entry;
+}
+
+function removeProvider(id) {
+  state.providers = state.providers.filter((p) => p.id !== id);
+  if (editingProviderId === id) editingProviderId = null;
+  saveProviders(state.providers);
+  recomputeModels();
+  syncDefaultModel();
+  refreshAllModelSelects();
+  renderProviders();
+  updateBlockingOverlay();
+}
+
+async function updateProviderKey(id, rawKey, statusEl) {
+  const p = state.providers.find((x) => x.id === id);
+  if (!p) return { ok: false };
+  const apiKey = String(rawKey || "").trim();
+  if (!apiKey) {
+    if (statusEl) statusEl.textContent = "Enter a key.";
+    return { ok: false };
+  }
+  if (statusEl) statusEl.textContent = "Detecting provider…";
+  let result;
+  try {
+    result = await detectKey(apiKey);
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `Detection failed: ${err.message}`;
+    return { ok: false };
+  }
+  if (!result.provider) {
+    if (statusEl) statusEl.textContent = result.error || "Unrecognized key.";
+    return { ok: false };
+  }
+  p.apiKey = apiKey;
+  p.provider = result.provider;
+  p.models = namespaceModels(result.provider, result.models);
+  p.valid = true;
+  saveProviders(state.providers);
+  recomputeModels();
+  syncDefaultModel();
+  refreshAllModelSelects();
+  editingProviderId = null;
+  renderProviders();
+  if (statusEl) statusEl.textContent = "";
+  return { ok: true };
+}
+
+let editingProviderId = null;
+
+function renderProviders() {
+  providerList.replaceChildren();
+  for (const p of state.providers) {
+    const row = document.createElement("div");
+    row.classList.add("provider-row");
+
+    const top = document.createElement("div");
+    top.classList.add("d-flex", "align-items-center", "gap-2");
+
+    const badge = document.createElement("span");
+    badge.classList.add(
+      "badge",
+      p.provider === "opencode-go" ? "text-bg-primary" : "text-bg-secondary",
+      "provider-badge"
+    );
+    badge.textContent = p.provider === "opencode-go" ? "OpenCode Go" : "OpenAI";
+    top.appendChild(badge);
+
+    const label = document.createElement("input");
+    label.classList.add("provider-label", "w-100");
+    label.style.overflow = "auto"
+    label.value = p.label;
+    label.addEventListener("change", () => {
+      const next = uniqueProviderLabel(
+        label.value.trim() || adjectiveAnimalId(state.providers),
+        state.providers.filter((x) => x.id !== p.id)
+      );
+      p.label = next;
+      label.value = next;
+      saveProviders(state.providers);
+    });
+    top.appendChild(label);
+
+    const del = document.createElement("button");
+    del.classList.add("btn", "btn-sm", "btn-link", "text-danger", "p-0");
+    del.style.textDecoration = "none";
+    del.textContent = "✕";
+    del.title = "Remove key";
+    del.addEventListener("click", () => {
+      if (confirm("Are you sure you want to remove this API key? This action cannot be undone.")) {
+        removeProvider(p.id);
+      }
+    });
+    top.appendChild(del);
+
+    row.appendChild(top);
+
+    const bottom = document.createElement("div");
+    bottom.classList.add("d-flex", "align-items-center", "gap-2", "mt-1");
+
+    if (editingProviderId === p.id) {
+      const editInput = document.createElement("input");
+      editInput.type = "password";
+      editInput.classList.add("form-control", "w-100");
+      editInput.value = p.apiKey;
+
+      const saveBtn = document.createElement("button");
+      saveBtn.classList.add("btn", "btn-sm", "btn-primary");
+      saveBtn.textContent = "Save";
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.classList.add("btn", "btn-sm", "btn-outline-secondary");
+      cancelBtn.textContent = "Cancel";
+
+      const editStatus = document.createElement("span");
+      editStatus.classList.add("form-text");
+
+      saveBtn.addEventListener("click", () => updateProviderKey(p.id, editInput.value, editStatus));
+      cancelBtn.addEventListener("click", () => {
+        editingProviderId = null;
+        renderProviders();
+      });
+
+      bottom.appendChild(editInput);
+      bottom.appendChild(saveBtn);
+      bottom.appendChild(cancelBtn);
+      bottom.appendChild(editStatus);
+      row.appendChild(bottom);
+      providerList.appendChild(row);
+      continue;
+    }
+
+    const keySpan = document.createElement("span");
+    keySpan.classList.add("provider-key", "w-100");
+    keySpan.style.overflow = "auto";
+    keySpan.textContent = maskKey(p.apiKey);
+    keySpan.title = "Double-click to edit";
+    keySpan.addEventListener("dblclick", () => {
+      editingProviderId = p.id;
+      renderProviders();
+    });
+    bottom.appendChild(keySpan);
+
+    const revealCheck = document.createElement("input");
+    revealCheck.type = "checkbox";
+    revealCheck.classList.add("btn-check");
+    revealCheck.id = `reveal-${p.id}`;
+    revealCheck.autocomplete = "off";
+    const revealLabel = document.createElement("label");
+    revealLabel.classList.add("btn", "btn-sm", "btn-outline-secondary");
+    revealLabel.setAttribute("for", revealCheck.id);
+    revealLabel.textContent = "👁";
+    revealLabel.title = "Reveal key";
+    revealCheck.addEventListener("change", () => {
+      if (revealCheck.checked) {
+        keySpan.textContent = p.apiKey;
+        revealLabel.title = "Hide key";
+      } else {
+        keySpan.textContent = maskKey(p.apiKey);
+        revealLabel.title = "Reveal key";
+      }
+    });
+    bottom.appendChild(revealCheck);
+    bottom.appendChild(revealLabel);
+
+    const refresh = document.createElement("button");
+    refresh.classList.add("btn", "btn-sm", "btn-outline-secondary");
+    refresh.textContent = "↻";
+    refresh.title = "Refresh models";
+    refresh.addEventListener("click", async () => {
+      try {
+        const r = await detectKey(p.apiKey);
+        if (r.provider && r.provider === p.provider) {
+          p.models = namespaceModels(r.provider, r.models);
+          p.valid = true;
+        } else {
+          p.valid = false;
+        }
+      } catch {
+        p.valid = false;
+      }
+      saveProviders(state.providers);
+      recomputeModels();
+      syncDefaultModel();
+      refreshAllModelSelects();
+      renderProviders();
+    });
+    bottom.appendChild(refresh);
+
+    if (p.valid === false) {
+      const invalid = document.createElement("span");
+      invalid.classList.add("badge", "text-bg-danger", "provider-badge");
+      invalid.textContent = "invalid";
+      bottom.appendChild(invalid);
+    }
+
+    row.appendChild(bottom);
+    providerList.appendChild(row);
+  }
+}
+
+function renderPrompts() {
+  promptSelect.replaceChildren();
+  for (const p of state.prompts) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.builtin ? `${p.name} (default)` : p.name;
+    promptSelect.appendChild(opt);
+  }
+  const active =
+    state.prompts.find((p) => p.id === state.activePromptId) ||
+    state.prompts.find((p) => p.builtin);
+  promptSelect.value = active ? active.id : "";
+  renderPromptEditor(active);
+}
+
+function renderPromptEditor(p) {
+  if (!p || p.builtin) {
+    promptEditor.setAttribute("hidden", "");
+    return;
+  }
+  promptEditor.removeAttribute("hidden");
+  promptNameInput.value = p.name || "";
+  promptTextInput.value = p.text || "";
+  promptEditor.dataset.promptId = p.id;
+}
+
+function toggleSettings(force) {
+  const show = force ?? settingsPane.hasAttribute("hidden");
+  if (show) {
+    settingsPane.removeAttribute("hidden");
+    renderProviders();
+    renderPrompts();
+  } else {
+    settingsPane.setAttribute("hidden", "");
+  }
+}
+
+settingsBtn.addEventListener("click", () => toggleSettings());
+settingsClose.addEventListener("click", () => toggleSettings(false));
+
+addKeyForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const entry = await detectAndAddKey(addKeyInput.value, addKeyStatus);
+  if (entry) addKeyInput.value = "";
+});
+
+overlayKeyForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const entry = await detectAndAddKey(overlayKeyInput.value, overlayStatus);
+  if (entry) overlayKeyInput.value = "";
+});
+
+promptSelect.addEventListener("change", () => {
+  state.activePromptId = promptSelect.value;
+  saveActivePromptId(state.activePromptId);
+  renderPrompts();
+});
+
+newPromptBtn.addEventListener("click", () => {
+  const p = {
+    id: uid("p"),
+    name: uniquePromptName("New prompt", state.prompts),
+    text: "",
+    builtin: false,
+  };
+  state.prompts.push(p);
+  savePrompts(state.prompts);
+  state.activePromptId = p.id;
+  saveActivePromptId(p.id);
+  renderPrompts();
+});
+
+savePromptBtn.addEventListener("click", () => {
+  const id = promptEditor.dataset.promptId;
+  const p = state.prompts.find((x) => x.id === id);
+  if (!p || p.builtin) return;
+  p.name = promptNameInput.value.trim() || p.name;
+  p.text = promptTextInput.value;
+  savePrompts(state.prompts);
+  renderPrompts();
+});
+
+deletePromptBtn.addEventListener("click", () => {
+  const id = promptEditor.dataset.promptId;
+  const p = state.prompts.find((x) => x.id === id);
+  if (!p || p.builtin) return;
+  state.prompts = state.prompts.filter((x) => x.id !== id);
+  savePrompts(state.prompts);
+  if (state.activePromptId === id) {
+    const builtin = state.prompts.find((x) => x.builtin);
+    state.activePromptId = builtin ? builtin.id : null;
+    saveActivePromptId(state.activePromptId);
+  }
+  renderPrompts();
+});
+
+async function revalidateProviders() {
+  for (const p of state.providers) {
+    try {
+      const r = await detectKey(p.apiKey);
+      if (r.provider && r.provider === p.provider) {
+        p.valid = true;
+        p.models = namespaceModels(r.provider, r.models);
+      } else {
+        p.valid = false;
+      }
+    } catch {
+      p.valid = false;
+    }
+  }
+  saveProviders(state.providers);
+  recomputeModels();
+  syncDefaultModel();
+  refreshAllModelSelects();
+  renderProviders();
+  renderPrompts();
+}
+
+/* ---------- init ---------- */
+
+export async function init() {
+  state.providers = loadProviders();
+  state.prompts = loadPrompts();
+  state.activePromptId = loadActivePromptId();
+
+  try {
+    state.defaultPromptText = await fetchDefaultPrompt();
+  } catch (err) {
+    console.error("Failed to load default prompt:", err);
+  }
+
+  const builtin = state.prompts.find((p) => p.builtin);
+  if (!builtin) {
+    state.prompts.unshift({
+      id: BUILTIN_PROMPT_ID,
+      name: "Default",
+      text: state.defaultPromptText || "",
+      builtin: true,
+    });
+  } else if (state.defaultPromptText) {
+    builtin.text = state.defaultPromptText;
+  }
+  savePrompts(state.prompts);
+
+  recomputeModels();
+  syncDefaultModel();
   refreshDefaultModelSelect();
+
+  updateBlockingOverlay();
+  renderProviders();
+  renderPrompts();
+
+  if (state.providers.length > 0) {
+    revalidateProviders();
+  }
 }

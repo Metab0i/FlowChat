@@ -1,22 +1,34 @@
 const API_BASE = "";
 
-export async function fetchModels() {
-  const res = await fetch(`${API_BASE}/models`);
+export async function detectKey(apiKey) {
+  const res = await fetch(`${API_BASE}/detect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: apiKey }),
+  });
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(`Failed to fetch models (${res.status})`);
+    throw new Error(data.error || `Key detection failed (${res.status})`);
   }
-  const data = await res.json();
-  return data.models || [];
+  return data;
 }
 
-export async function fetchTitle(model, content, timeoutMs = 15000) {
+export async function fetchDefaultPrompt() {
+  const res = await fetch(`${API_BASE}/defaults/system-prompt`);
+  if (!res.ok) {
+    throw new Error(`Failed to load default prompt (${res.status})`);
+  }
+  return res.text();
+}
+
+export async function fetchTitle(apiKey, model, content, timeoutMs = 15000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`${API_BASE}/title`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, content }),
+      body: JSON.stringify({ api_key: apiKey, model, content }),
       signal: controller.signal,
     });
     if (!res.ok) {
@@ -29,11 +41,11 @@ export async function fetchTitle(model, content, timeoutMs = 15000) {
   }
 }
 
-export async function streamGenerate(model, conversation, onChunk) {
+export async function streamGenerate(apiKey, model, systemPrompt, conversation, onChunk) {
   const res = await fetch(`${API_BASE}/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, conversation }),
+    body: JSON.stringify({ api_key: apiKey, model, system_prompt: systemPrompt, conversation }),
   });
 
   if (!res.ok) {

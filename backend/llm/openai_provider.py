@@ -1,19 +1,22 @@
-import os
-
 from openai import OpenAI
 
-_client = None
+
+def _client(api_key):
+    return OpenAI(api_key=api_key)
 
 
-def get_client():
-    global _client
-    if _client is None:
-        _client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    return _client
+def detect(api_key):
+    list_models(api_key)
+    return True
 
 
-def stream(*, model, system_prompt, user_content):
-    stream = get_client().chat.completions.create(
+def list_models(api_key):
+    response = _client(api_key).models.list()
+    return [m.id for m in response.data]
+
+
+def stream(*, api_key, model, system_prompt, user_content):
+    stream = _client(api_key).chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": system_prompt},
@@ -29,8 +32,3 @@ def stream(*, model, system_prompt, user_content):
         content = getattr(delta, "content", None) if delta else None
         if content:
             yield content
-
-
-def list_models():
-    response = get_client().models.list()
-    return [m.id for m in response.data]

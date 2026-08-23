@@ -17,7 +17,6 @@
             ps.flask-cors
             ps.openai
             ps.httpx
-            ps.python-dotenv
           ]);
         in
         {

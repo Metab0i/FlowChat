@@ -1,5 +1,4 @@
 import json
-import os
 
 import httpx
 
@@ -8,10 +7,10 @@ from .registry import GO_BASE_URL
 MAX_TOKENS = 10000
 
 
-def stream(*, model, system_prompt, user_content):
+def stream(*, api_key, model, system_prompt, user_content):
     headers = {
         "Content-Type": "application/json",
-        "x-api-key": os.environ["OPENCODE_GO_API_KEY"],
+        "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
     }
     body = {

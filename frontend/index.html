@@ -22,10 +22,12 @@
   <div id="toolbar" class="d-flex align-items-center gap-2 px-3 py-2 bg-body-tertiary border-bottom">
     <button id="inspector-toggle" class="btn btn-outline-secondary btn-sm" title="Toggle inspector panel">Inspector</button>
     <select id="default-model-select" class="form-select form-select-sm" title="Default model for new responses"></select>
+    <button id="refresh-models-btn" class="btn btn-outline-secondary btn-sm" title="Refresh all models">↻</button>
     <div class="ms-auto d-flex align-items-center gap-2">
       <button id="export-btn" class="btn btn-outline-secondary btn-sm">Export</button>
       <button id="import-btn" class="btn btn-outline-secondary btn-sm">Import</button>
       <input id="import-file" type="file" accept="application/json" hidden />
+      <button id="settings-btn" class="btn btn-outline-secondary btn-sm" title="Settings">⚙</button>
     </div>
   </div>
 
@@ -55,13 +57,61 @@
     <button id="send-btn" class="btn btn-primary">Send</button>
   </div>
 
+  <div id="settings-pane" hidden>
+    <div id="settings-header" class="d-flex align-items-center justify-content-between px-3 py-2 border-bottom">
+      <strong>Settings</strong>
+      <button id="settings-close" class="btn-close" title="Close" aria-label="Close"></button>
+    </div>
+    <div id="settings-content" class="p-3">
+      <section id="providers-section">
+        <h6 class="mb-2">API keys</h6>
+        <div id="provider-list" class="vstack gap-2 mb-3"></div>
+        <form id="add-key-form" class="d-flex gap-2">
+          <input id="add-key-input" type="password" class="form-control form-control-sm" placeholder="Paste API key..." autocomplete="off" />
+          <button type="submit" class="btn btn-sm btn-primary">Add</button>
+        </form>
+        <div id="add-key-status" class="form-text"></div>
+      </section>
+      <hr />
+      <section id="prompts-section">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <h6 class="mb-0">System prompt</h6>
+          <button id="new-prompt-btn" class="btn btn-sm btn-outline-secondary">New</button>
+        </div>
+        <select id="prompt-select" class="form-select form-select-sm mb-3"></select>
+        <div id="prompt-editor" hidden>
+          <input id="prompt-name-input" class="form-control form-control-sm mb-2" placeholder="Prompt name" />
+          <textarea id="prompt-text-input" class="form-control form-control-sm mb-2" rows="10" placeholder="System prompt text..."></textarea>
+          <div class="d-flex gap-2">
+            <button id="save-prompt-btn" class="btn btn-sm btn-primary">Save</button>
+            <button id="delete-prompt-btn" class="btn btn-sm btn-outline-danger">Delete</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="key-overlay" hidden>
+    <div class="card shadow" id="key-overlay-card">
+      <div class="card-body p-4">
+        <h5 class="card-title">Welcome to FlowChat</h5>
+        <p class="text-muted small">Enter an API key to get started. Your key stays in this browser and is only used to talk to your LLM provider.</p>
+        <form id="overlay-key-form">
+          <input id="overlay-key-input" type="password" class="form-control mb-2" placeholder="Paste API key..." autocomplete="off" />
+          <button type="submit" class="btn btn-primary w-100">Add key</button>
+        </form>
+        <div id="overlay-status" class="form-text mt-2"></div>
+      </div>
+    </div>
+  </div>
+
   <div id="context-menu" class="list-group shadow rounded" hidden>
     <button class="list-group-item list-group-item-action" data-action="replicate">Replicate Node</button>
     <button class="list-group-item list-group-item-action" data-action="connect">Create Connected Node</button>
     <button class="list-group-item list-group-item-action text-danger" data-action="delete">Delete Node</button>
   </div>
 
-  <div class="toast-container position-fixed bottom-0 end-0 p-3">
+  <div class="toast-container position-fixed end-0 p-3 above-chatbar">
     <div id="flowchat-toast" class="toast align-items-center text-bg-warning border-0" role="alert" aria-live="assertive" aria-atomic="true">
       <div class="d-flex">
         <div class="toast-body" id="flowchat-toast-body"></div>

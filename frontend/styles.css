@@ -346,3 +346,70 @@ body.is-selecting .flow-selection-hover {
 
 /* jsPlumb connection path */
 .jtk-connector path { cursor: pointer; }
+
+/* Toast: sit above the chat bar, not over it */
+.toast-container.above-chatbar {
+  bottom: 88px;
+  top: auto;
+}
+
+/* Settings pane (right-side drawer) */
+#settings-pane {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 340px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--bs-body-bg);
+  border-left: 1px solid var(--bs-border-color);
+  box-shadow: var(--bs-box-shadow);
+}
+#settings-pane[hidden] { display: none !important; }
+#settings-content {
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+#settings-content h6 { margin-bottom: 0.25rem; }
+
+/* Provider list rows */
+.provider-row {
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+  padding: 0.5rem;
+}
+.provider-label {
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 0.1rem 0.25rem;
+  border-radius: var(--bs-border-radius-sm);
+  font-weight: 500;
+}
+.provider-label:hover { border-color: var(--bs-border-color); }
+.provider-label:focus { border-color: var(--bs-primary); outline: none; }
+.provider-key {
+  font-family: var(--bs-font-monospace);
+  font-size: 0.8rem;
+  color: var(--bs-secondary-color);
+}
+.provider-badge {
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+/* Key overlay (first-run blocking) */
+#key-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 1rem;
+}
+#key-overlay[hidden] { display: none !important; }
+#key-overlay-card { max-width: 420px; width: 100%; }
+
