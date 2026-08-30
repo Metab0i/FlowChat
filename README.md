@@ -56,14 +56,21 @@ single thread.
 
 ## Installation
 
-Prerequisites: **Python 3** and **Node.js** (or [Nix](https://nixos.org/)).
+Prerequisites: **Python 3** and **Node.js** — or [Nix](https://nixos.org/), which
+provides both via the flake devShell.
+
+With Nix, no separate install is needed (npm is available inside `nix develop`):
 
 ```sh
-# backend dependencies
-nix develop                          # or: pip install -r backend/requirements.txt
+nix develop -c bash -c 'cd frontend && npm install --omit=dev'
+```
 
-# frontend ES-module dependencies (no build step)
-(cd frontend && npm install)
+Without Nix:
+
+```sh
+python -m venv .venv && source .venv/bin/activate
+pip install -r backend/requirements.txt
+(cd frontend && npm install --omit=dev)
 ```
 
 No server-side configuration is required. API keys are entered in the browser
@@ -81,15 +88,49 @@ backend routes each OpenCode Go model through the correct protocol
 
 ## Running (local)
 
-```sh
-nix develop              # provides Python (Flask, openai, httpx) + Node.js
-(cd frontend && npm install)   # downloads jsPlumb CE, marked, dompurify, highlight.js
-python backend/app.py          # serves the UI + API on http://localhost:8000
+### With Nix (recommended)
+
+Enable flakes once (skip if already enabled). On NixOS, add to
+`/etc/nixos/configuration.nix`:
+
+```nix
+nix.settings.experimental-features = [ "nix-command" "flakes" ];
 ```
 
-Without Nix, install the Python deps from `backend/requirements.txt` and run
-`python backend/app.py`; the frontend only needs `npm install` to fetch its
-ES-module dependencies (served statically by Flask — no build step).
+then `sudo nixos-rebuild switch`. Without a system change, prefix `nix` commands with
+`--extra-experimental-features 'nix-command flakes'`.
+
+Then, from the repo root:
+
+```sh
+./run.sh
+```
+
+`run.sh` bootstraps the frontend ES-module dependencies on first run (npm lives in
+`nix develop`) and serves the UI + API on http://localhost:8000. Override the port with
+`PORT=9000 ./run.sh`.
+
+### Without Nix
+
+```sh
+python -m venv .venv && source .venv/bin/activate
+pip install -r backend/requirements.txt
+(cd frontend && npm install --omit=dev)
+python backend/app.py
+```
+
+### Via `nix run`
+
+```sh
+nix run .#
+```
+
+starts the Flask server. Note: `frontend/node_modules` is gitignored and not vendored
+into the store, so the frontend's npm-based modules won't load from the `nix run` store
+copy — use `./run.sh` (which runs from the live checkout) for the full UI.
+
+> **Security:** the dev server binds `0.0.0.0` (reachable on your LAN) and is stateless —
+> API keys are entered in the browser and never persisted server-side.
 
 ## Deployment
 
