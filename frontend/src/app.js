@@ -102,24 +102,16 @@ const panzoom = createPanZoom({
 
 /* ---------- jsPlumb source/target selectors ---------- */
 
-const PORT_SELECTORS = [
-  ".flow-node .port-top",
-  ".flow-node .port-right",
-  ".flow-node .port-bottom",
-  ".flow-node .port-left",
-];
-
-for (const selector of PORT_SELECTORS) {
-  const params = {
-    scope: "flowchat",
-    anchor: "AutoDefault",
-    maxConnections: -1,
-    allowLoopback: false,
-    endpoint: "Blank",
-  };
-  instance.addSourceSelector(selector, params);
-  instance.addTargetSelector(selector, params);
-}
+const PORT_SELECTOR = ".flow-node .port";
+const PORT_PARAMS = {
+  scope: "flowchat",
+  anchor: "Continuous",
+  maxConnections: -1,
+  allowLoopback: false,
+  endpoint: "Blank",
+};
+instance.addSourceSelector(PORT_SELECTOR, PORT_PARAMS);
+instance.addTargetSelector(PORT_SELECTOR, PORT_PARAMS);
 
 instance.bind("connection", (info) => {
   const conn = info.connection;
@@ -742,22 +734,18 @@ function createNodeElement(node) {
 
   const targetHandle = document.createElement("div");
   targetHandle.classList.add("port", "port-top");
-  targetHandle.dataset.nodeId = node.id;
   el.appendChild(targetHandle);
 
   const rightPort = document.createElement("div");
   rightPort.classList.add("port", "port-right");
-  rightPort.dataset.nodeId = node.id;
   el.appendChild(rightPort);
 
   const sourceHandle = document.createElement("div");
   sourceHandle.classList.add("port", "port-bottom");
-  sourceHandle.dataset.nodeId = node.id;
   el.appendChild(sourceHandle);
 
   const leftPort = document.createElement("div");
   leftPort.classList.add("port", "port-left");
-  leftPort.dataset.nodeId = node.id;
   el.appendChild(leftPort);
 
   renderNodeTitle(node);
@@ -940,7 +928,8 @@ function connectNodes(sourceId, targetId) {
   const conn = instance.connect({
     source: source.el,
     target: target.el,
-    anchors: ["AutoDefault", "AutoDefault"],
+    anchors: ["Continuous", "Continuous"],
+    endpoint: "Blank",
     scope: "flowchat",
   });
   drawMinimap();
