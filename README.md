@@ -59,19 +59,47 @@ single thread.
 Prerequisites: **Python 3** and **Node.js** — or [Nix](https://nixos.org/), which
 provides both via the flake devShell.
 
-With Nix, no separate install is needed (npm is available inside `nix develop`):
+There are two install modes:
+
+- **Runtime only** (what `run.sh` uses): `npm install --omit=dev`. This deliberately
+  skips dev-only packages such as **Puppeteer** and its ~300 MB Chromium download.
+- **Development / testing**: a full `npm install` (no `--omit=dev`). This installs
+  Puppeteer (a devDependency) and everything needed to run the test suite.
+
+### With Nix
+
+No separate Python/Node install is needed (both come from the flake devShell):
 
 ```sh
+nix develop -c bash -c 'cd frontend && npm install'   # dev/test install (incl. Puppeteer)
+# or, for runtime only:
 nix develop -c bash -c 'cd frontend && npm install --omit=dev'
 ```
 
-Without Nix:
+Inside `nix develop` the devShell sets `PUPPETEER_EXECUTABLE_PATH` to Nix's Chromium and
+`PUPPETEER_SKIP_DOWNLOAD=1`, so Puppeteer runs against the Nix-provided browser instead of
+downloading a Debian-built Chrome (which won't run on NixOS). On macOS the devShell keeps the
+auto-download fallback.
+
+### Without Nix
 
 ```sh
 python -m venv .venv && source .venv/bin/activate
 pip install -r backend/requirements.txt
+(cd frontend && npm install)            # dev/test install (Puppeteer downloads Chrome)
+# or, for runtime only:
 (cd frontend && npm install --omit=dev)
 ```
+
+On standard Linux/macOS, Puppeteer's `npm install` downloads a Chromium that runs out of the box.
+
+### Runtime dependencies
+
+- **Python**: `flask`, `flask-cors`, `openai`, `httpx` (see `backend/requirements.txt`).
+- **Frontend runtime**: jsPlumb, marked, DOMPurify, highlight.js (`frontend/package.json`
+  `dependencies`).
+- **Frontend dev**: Puppeteer (`frontend/package.json` `devDependencies`) — only needed to run
+  the test suite.
 
 No server-side configuration is required. API keys are entered in the browser
 and kept there — the Flask server is a stateless pass-through that never
@@ -131,6 +159,38 @@ copy — use `./run.sh` (which runs from the live checkout) for the full UI.
 
 > **Security:** the dev server binds `0.0.0.0` (reachable on your LAN) and is stateless —
 > API keys are entered in the browser and never persisted server-side.
+
+## Testing
+
+The frontend has an end-to-end suite driven by **Puppeteer** (a `devDependency`), using Node's
+built-in test runner. The tests spawn the real Flask backend on a free port and drive the real UI
+in headless Chromium; the LLM endpoints (`/detect`, `/generate`, `/title`) are mocked in the
+browser, so no API key or network access to a provider is needed.
+
+**With Nix:**
+
+```sh
+nix develop -c bash -c 'cd frontend && npm install && npm test'
+```
+
+Inside the devShell, Puppeteer uses Nix's Chromium (no separate Chrome download).
+
+**Without Nix:**
+
+```sh
+source .venv/bin/activate
+(cd frontend && npm install)   # installs Puppeteer; downloads Chrome on first run
+(cd frontend && npm test)
+```
+
+Notes:
+
+- Tests run from `frontend/` via `npm test` (which runs `node --test "tests/*.test.js"`).
+- A small, production-safe test hook is exposed only when the page is loaded with `?test=1`;
+  the normal app URL is unaffected.
+- These are in-browser Puppeteer tests — the backend's LLM-proxy routes are mocked, so backend
+  API coverage is out of scope here. The real Flask server is only exercised for static serving
+  and `/defaults/*`.
 
 ## Deployment
 

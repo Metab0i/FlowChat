@@ -29,9 +29,15 @@
               (pythonFor system)
               pkgs.nodejs_22
               pkgs.git
-            ];
+            ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.chromium ];
             shellHook = ''
-              echo "FlowChat devShell ready — python3 (Flask) + nodejs"
+              # Point Puppeteer at Nix's Chromium and skip its own (broken-on-NixOS,
+              # Debian-based) Chrome download. macOS keeps the auto-download fallback.
+              if [ "$(uname -s)" = Linux ]; then
+                export PUPPETEER_EXECUTABLE_PATH="${pkgs.chromium}/bin/chromium"
+                export PUPPETEER_SKIP_DOWNLOAD=1
+              fi
+              echo "FlowChat devShell ready — python3 (Flask) + nodejs + chromium (Puppeteer tests)"
             '';
           };
         });

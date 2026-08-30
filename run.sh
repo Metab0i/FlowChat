@@ -22,7 +22,9 @@ fi
 NIX_DEV=(nix --extra-experimental-features 'nix-command flakes' develop --command)
 
 # Bootstrap frontend ES-module deps on first run (npm lives in the devShell).
-# --omit=dev skips puppeteer's Chromium download (hundreds of MB, unused at runtime).
+# --omit=dev skips puppeteer + its Chromium download (hundreds of MB, unused at
+# runtime). For development/testing use a full `npm install` instead — see README
+# "Testing" — which installs Puppeteer (devDependency).
 if [ ! -d frontend/node_modules ]; then
   "${NIX_DEV[@]}" bash -c 'cd frontend && npm install --omit=dev'
 fi

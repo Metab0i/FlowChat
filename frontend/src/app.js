@@ -2123,4 +2123,8 @@ export async function init() {
   if (state.providers.length > 0) {
     revalidateProviders();
   }
+
+  if (new URLSearchParams(location.search).has("test")) {
+    window.__flowchat = { serialize, deserialize };
+  }
 }
