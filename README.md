@@ -56,8 +56,11 @@ single thread.
 
 ## Installation
 
-Prerequisites: **Python 3** and **Node.js** — or [Nix](https://nixos.org/), which
-provides both via the flake devShell.
+Prerequisites: **Python 3** and **Node.js**.
+
+> Prefer the [one-command launcher](#running-local) below — it creates the venv,
+> installs backend deps, and bootstraps the frontend automatically on first run.
+> The steps here are only what you'd do by hand.
 
 There are two install modes:
 
@@ -66,9 +69,22 @@ There are two install modes:
 - **Development / testing**: a full `npm install` (no `--omit=dev`). This installs
   Puppeteer (a devDependency) and everything needed to run the test suite.
 
-### With Nix
+### Standard setup (Python + Node)
 
-No separate Python/Node install is needed (both come from the flake devShell):
+```sh
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r backend/requirements.txt
+(cd frontend && npm install)            # dev/test install (Puppeteer downloads Chrome)
+# or, for runtime only:
+(cd frontend && npm install --omit=dev)
+```
+
+On standard Linux/macOS, Puppeteer's `npm install` downloads a Chromium that runs out of the box.
+
+### Optional: Nix / NixOS
+
+FlowChat also ships a [flake](https://nixos.wiki/wiki/Flakes). On NixOS (or if you prefer Nix),
+no separate Python/Node install is needed — both come from the devShell:
 
 ```sh
 nix develop -c bash -c 'cd frontend && npm install'   # dev/test install (incl. Puppeteer)
@@ -80,18 +96,6 @@ Inside `nix develop` the devShell sets `PUPPETEER_EXECUTABLE_PATH` to Nix's Chro
 `PUPPETEER_SKIP_DOWNLOAD=1`, so Puppeteer runs against the Nix-provided browser instead of
 downloading a Debian-built Chrome (which won't run on NixOS). On macOS the devShell keeps the
 auto-download fallback.
-
-### Without Nix
-
-```sh
-python -m venv .venv && source .venv/bin/activate
-pip install -r backend/requirements.txt
-(cd frontend && npm install)            # dev/test install (Puppeteer downloads Chrome)
-# or, for runtime only:
-(cd frontend && npm install --omit=dev)
-```
-
-On standard Linux/macOS, Puppeteer's `npm install` downloads a Chromium that runs out of the box.
 
 ### Runtime dependencies
 
@@ -116,9 +120,33 @@ backend routes each OpenCode Go model through the correct protocol
 
 ## Running (local)
 
-### With Nix (recommended)
+### One command (recommended)
 
-Enable flakes once (skip if already enabled). On NixOS, add to
+From the repo root, run the launcher. It auto-creates the venv, installs backend
+deps, bootstraps the frontend's runtime modules on first run, and serves the UI +
+API on http://localhost:8000.
+
+- **Linux / macOS:** `./run.sh`
+- **Windows:** `.\run.ps1` (if PowerShell blocks it, use
+  `powershell -ExecutionPolicy Bypass -File run.ps1`)
+
+`run.sh` detects whether you're on NixOS and, if so, runs inside `nix develop`;
+on any other OS it uses a plain Python venv + npm. Override the port with
+`PORT=9000 ./run.sh` (Linux/macOS) or `$env:PORT=9000; .\run.ps1` (Windows).
+
+### Manual run (no launcher)
+
+```sh
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r backend/requirements.txt
+(cd frontend && npm install --omit=dev)
+python backend/app.py
+```
+
+### Optional: run with Nix
+
+**On NixOS** the launcher handles this for you automatically. To run manually,
+first enable flakes (skip if already enabled) — on NixOS add to
 `/etc/nixos/configuration.nix`:
 
 ```nix
@@ -131,31 +159,18 @@ then `sudo nixos-rebuild switch`. Without a system change, prefix `nix` commands
 Then, from the repo root:
 
 ```sh
-./run.sh
+nix develop -c bash -c 'cd frontend && npm install --omit=dev && cd .. && python3 backend/app.py'
 ```
 
-`run.sh` bootstraps the frontend ES-module dependencies on first run (npm lives in
-`nix develop`) and serves the UI + API on http://localhost:8000. Override the port with
-`PORT=9000 ./run.sh`.
-
-### Without Nix
-
-```sh
-python -m venv .venv && source .venv/bin/activate
-pip install -r backend/requirements.txt
-(cd frontend && npm install --omit=dev)
-python backend/app.py
-```
-
-### Via `nix run`
+or via the flake app:
 
 ```sh
 nix run .#
 ```
 
-starts the Flask server. Note: `frontend/node_modules` is gitignored and not vendored
-into the store, so the frontend's npm-based modules won't load from the `nix run` store
-copy — use `./run.sh` (which runs from the live checkout) for the full UI.
+Note: `nix run .#` starts only the Flask server; `frontend/node_modules` is gitignored
+and not vendored into the store, so the frontend's npm-based modules won't load from the
+`nix run` store copy — use `./run.sh` (which runs from the live checkout) for the full UI.
 
 > **Security:** the dev server binds `0.0.0.0` (reachable on your LAN) and is stateless —
 > API keys are entered in the browser and never persisted server-side.
@@ -167,6 +182,14 @@ built-in test runner. The tests spawn the real Flask backend on a free port and 
 in headless Chromium; the LLM endpoints (`/detect`, `/generate`, `/title`) are mocked in the
 browser, so no API key or network access to a provider is needed.
 
+**Standard setup:**
+
+```sh
+source .venv/bin/activate                # Windows: .venv\Scripts\activate
+(cd frontend && npm install)             # installs Puppeteer; downloads Chrome on first run
+(cd frontend && npm test)
+```
+
 **With Nix:**
 
 ```sh
@@ -174,14 +197,6 @@ nix develop -c bash -c 'cd frontend && npm install && npm test'
 ```
 
 Inside the devShell, Puppeteer uses Nix's Chromium (no separate Chrome download).
-
-**Without Nix:**
-
-```sh
-source .venv/bin/activate
-(cd frontend && npm install)   # installs Puppeteer; downloads Chrome on first run
-(cd frontend && npm test)
-```
 
 Notes:
 
